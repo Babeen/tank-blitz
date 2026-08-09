@@ -1,0 +1,82 @@
+
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#1a1d29; font-family:'Segoe UI',system-ui,Arial,sans-serif; }
+  #wrap { position:relative; width:100vw; height:100vh; overflow:hidden; }
+  canvas { display:block; position:absolute; top:0; left:0; }
+  .screen { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:radial-gradient(circle at 50% 30%, #2a3350, #151824 80%); z-index:20; transition:opacity .35s ease, transform .35s ease; text-align:center; }
+  .screen.hidden { opacity:0; pointer-events:none; transform:scale(.98); }
+  .display-none { display:none !important; }
+  .title { font-size:clamp(38px,8vw,84px); font-weight:900; letter-spacing:2px; color:#ffd54a;
+    text-shadow:0 4px 0 #a06a00, 0 8px 18px rgba(0,0,0,.6); margin-bottom:6px; animation:pop .5s ease; }
+  @keyframes pop { 0%{transform:scale(.7);opacity:0} 100%{transform:scale(1);opacity:1} }
+  .subtitle { color:#9fb3d1; font-size:clamp(13px,2.4vw,20px); margin-bottom:28px; letter-spacing:3px; }
+  .btn { font-family:inherit; cursor:pointer; border:none; outline:none; color:#fff;
+    padding:14px 30px; margin:7px; font-size:clamp(15px,2.4vw,20px); font-weight:700; border-radius:14px; min-width:230px;
+    transition:transform .12s ease, filter .12s ease; box-shadow:0 5px 0 rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.15);
+    background:linear-gradient(#41527d,#2b3654); }
+  .btn:hover { transform:translateY(-2px); filter:brightness(1.12); }
+  .btn:active { transform:translateY(2px); box-shadow:0 2px 0 rgba(0,0,0,.35); }
+  .btn.primary { background:linear-gradient(#ffcf3f,#f5a623); color:#3a2600; box-shadow:0 5px 0 #a86a00, inset 0 1px 0 rgba(255,255,255,.4); }
+  .btn.green { background:linear-gradient(#4bd07a,#2fa459); color:#06340f; box-shadow:0 5px 0 #1e6d3a; }
+  .btn.red { background:linear-gradient(#ff6b6b,#d93b3b); box-shadow:0 5px 0 #8f1e1e; }
+  .btn.purple { background:linear-gradient(#a674f0,#7d4bd0); box-shadow:0 5px 0 #5228a0; }
+  .btn.small { min-width:auto; padding:10px 20px; font-size:15px; }
+  .row { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; max-width:760px; }
+  .panel { background:rgba(20,26,42,.82); border:2px solid rgba(120,150,200,.25); border-radius:20px; padding:22px 26px; margin:10px; backdrop-filter:blur(4px); max-width:90vw; }
+  .panel h2 { color:#ffd54a; margin-bottom:14px; letter-spacing:2px; font-size:clamp(20px,4vw,30px); }
+  .panel p, .panel li { color:#cdd8ee; line-height:1.7; font-size:clamp(13px,2.2vw,17px); text-align:left; }
+  .panel ul { margin-left:20px; }
+  .diff-row .btn { min-width:120px; }
+  .diff-row .btn.selected { outline:3px solid #ffd54a; transform:translateY(-2px); }
+  .diff-desc { color:#9fb3d1; font-size:14px; max-width:420px; margin:10px auto; min-height:44px; line-height:1.5; }
+
+  .room-input { font-family:inherit; font-size:22px; font-weight:800; letter-spacing:6px; text-align:center; text-transform:uppercase;
+    color:#ffd54a; background:rgba(10,14,24,.6); border:2px solid rgba(120,150,200,.35); border-radius:12px; padding:12px 16px; width:100%; outline:none; }
+
+  /* Stage 6 — match lifecycle */
+  .countdown-overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; z-index:22; pointer-events:none; }
+  .countdown-number { font-size:clamp(80px,18vw,180px); font-weight:900; text-shadow:0 6px 0 rgba(0,0,0,.5), 0 12px 30px rgba(0,0,0,.6);
+    animation:countdownPulse .5s cubic-bezier(.2,1.4,.4,1); }
+  @keyframes countdownPulse { 0%{transform:scale(.4);opacity:0} 60%{transform:scale(1.15);opacity:1} 100%{transform:scale(1);opacity:1} }
+  .mp-match-timer { background:rgba(10,14,24,.7); border:1px solid rgba(120,150,200,.35); border-radius:8px; padding:6px 12px; font-weight:700; color:#fff; }
+  .mp-match-timer.low { color:#ff6b6b; animation:timerPulse .6s ease-in-out infinite; }
+  @keyframes timerPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.12)} }
+  .room-input:focus { border-color:#ffd54a; }
+  #hud { position:absolute; inset:0; z-index:10; pointer-events:none; }
+  .hud-top { position:absolute; top:10px; left:0; right:0; display:flex; justify-content:space-between; padding:0 14px; }
+  .hud-chip { background:rgba(20,26,42,.8); border:2px solid rgba(120,150,200,.3); border-radius:12px; padding:7px 14px; color:#fff; font-weight:800; font-size:16px; display:flex; align-items:center; gap:7px; box-shadow:0 3px 8px rgba(0,0,0,.4); }
+  .hud-center { display:flex; gap:10px; }
+  #pauseBtn { pointer-events:auto; cursor:pointer; }
+  .icon-coin { color:#ffcf3f; }
+  #comboChip { position:absolute; top:56px; left:14px; background:rgba(20,26,42,.8); border:2px solid #ffcf3f; border-radius:12px; padding:6px 12px; color:#ffcf3f; font-weight:900; font-size:18px; display:none; box-shadow:0 3px 8px rgba(0,0,0,.4); transition:transform .1s ease; }
+  #bossBar { position:absolute; top:14px; left:50%; transform:translateX(-50%); width:min(60vw,520px); display:none; z-index:12; }
+  #bossBar .barlabel { color:#c86bff; justify-content:center; font-size:15px; letter-spacing:2px; }
+  #bossBar .bar { height:16px; border-color:#c86bff; }
+  #bossBar .bfill { background:linear-gradient(#c86bff,#8a2be2); height:100%; border-radius:8px; transition:width .2s ease; }
+  #healthWrap { position:absolute; bottom:16px; left:16px; width:260px; max-width:44vw; }
+  .barlabel { color:#fff; font-weight:800; font-size:13px; margin-bottom:3px; text-shadow:0 1px 2px #000; display:flex; justify-content:space-between; }
+  .bar { height:20px; background:rgba(0,0,0,.5); border-radius:10px; overflow:hidden; border:2px solid rgba(255,255,255,.2); }
+  .bar > div { height:100%; transition:width .18s ease; border-radius:8px; }
+  .hp-fill { background:linear-gradient(#ff6b6b,#e03b3b); }
+  #p2HealthWrap { position:absolute; bottom:16px; left:290px; width:260px; max-width:44vw; display:none; }
+  .p2 .hp-fill { background:linear-gradient(#5aa8ff,#2f7fe0); }
+  #weaponChip { position:absolute; bottom:56px; right:16px; }
+  #minimap { position:absolute; top:56px; right:14px; width:130px; height:96px; background:rgba(10,14,24,.85); border:2px solid rgba(120,150,200,.35); border-radius:10px; }
+  #powerbar { position:absolute; bottom:60px; left:50%; transform:translateX(-50%); display:flex; gap:8px; flex-wrap:wrap; justify-content:center; max-width:60vw; }
+  .pchip { background:rgba(20,26,42,.85); border:2px solid rgba(120,150,200,.3); border-radius:10px; padding:5px 9px; color:#fff; font-size:13px; font-weight:700; display:flex; align-items:center; gap:5px; }
+  #toast { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%); z-index:15; color:#fff; font-size:clamp(28px,6vw,60px); font-weight:900; text-shadow:0 4px 14px #000; opacity:0; pointer-events:none; transition:opacity .3s, transform .3s; text-align:center; }
+  #touch { position:absolute; inset:0; z-index:11; pointer-events:none; display:none; }
+  .stick { position:absolute; bottom:26px; left:26px; width:130px; height:130px; border-radius:50%; background:rgba(255,255,255,.09); border:3px solid rgba(255,255,255,.2); pointer-events:auto; }
+  .knob { position:absolute; width:58px; height:58px; border-radius:50%; left:36px; top:36px; background:rgba(255,255,255,.35); border:2px solid rgba(255,255,255,.5); }
+  .tbtn { position:absolute; border-radius:50%; background:rgba(255,255,255,.12); border:3px solid rgba(255,255,255,.25); pointer-events:auto; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:14px; }
+  #tFire { bottom:110px; right:30px; width:96px; height:96px; }
+  #tDash { bottom:40px; right:140px; width:70px; height:70px; }
+  .stats { color:#cdd8ee; font-size:18px; line-height:2; }
+  .stats b { color:#ffd54a; }
+  @media (max-width:640px){ .btn{min-width:180px;} }
+
+#root, #wrap { width: 100vw; height: 100vh; overflow: hidden; position: relative; }
+#toast { transition: opacity .3s, transform .3s; }
+#toast.show { opacity: 1 !important; transform: translate(-50%,-50%) scale(1.05) !important; pointer-events: none; }
+#game { display: block; position: absolute; top: 0; left: 0; }

@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Environment variables — never commit real secrets/URLs
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Editor/OS cruft
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Vite
+.vite/
