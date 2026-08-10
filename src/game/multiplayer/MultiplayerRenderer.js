@@ -312,6 +312,16 @@ export class MultiplayerRenderer {
         this.audio.explode?.();
         this._shake(14);
         break;
+      case GAME_EVENTS.TILE_DESTROYED:
+        // Keep this client's map grid in lockstep with the server's live
+        // grid. mapData is the same object reference handed to
+        // MultiplayerInputController.setMap(), so mutating the grid here
+        // also fixes local collision prediction — not just rendering —
+        // without needing a second update path.
+        if (this.mapData?.grid?.[event.gy] && event.gx >= 0 && event.gx < this.mapData.cols) {
+          this.mapData.grid[event.gy][event.gx] = T.EMPTY;
+        }
+        break;
       case GAME_EVENTS.DASH_STARTED:
         this.particles.spawn(event.x, event.y, { count: 6, color: '#fff', speedMax: 80, life: 0.2 });
         break;

@@ -303,6 +303,7 @@ export class GameSimulation {
           const gx = Math.floor(nx / TILE), gy = Math.floor(ny / TILE);
           if (t === T.BRICK || t === T.CRATE) {
             this.map.grid[gy][gx] = T.EMPTY;
+            this.onEvent(GAME_EVENTS.TILE_DESTROYED, { gx, gy });
             if (b.explosive) this._rocketExplode(b.x, b.y, b.ownerId, players);
             b.dead = true; hit = true;
           } else if (t === T.BARREL) {
@@ -317,6 +318,15 @@ export class GameSimulation {
               if (pgx === gx && pgy === gy) { b.vx = -b.vx; b.vy = -b.vy; }
               b.angle = Math.atan2(b.vy, b.vx);
               b.bounces--;
+              // Mirrors Bullet.update() (single-player): on a steel bounce
+              // it `return`s immediately without advancing x/y onto the
+              // solid tile it just detected. Stopping the step loop here
+              // (via hit=true) instead of falling through to `b.x = nx;
+              // b.y = ny;` keeps the bullet outside the wall — previously
+              // it was written into/through the solid tile on every
+              // bounce, which is what let shots tunnel past steel over
+              // repeated ricochets.
+              hit = true;
             } else {
               if (b.explosive) this._rocketExplode(b.x, b.y, b.ownerId, players);
               b.dead = true; hit = true;
@@ -387,6 +397,7 @@ export class GameSimulation {
   _explodeBarrel(gx, gy, players) {
     const wx = gx * TILE + TILE / 2, wy = gy * TILE + TILE / 2;
     this.map.grid[gy][gx] = T.EMPTY;
+    this.onEvent(GAME_EVENTS.TILE_DESTROYED, { gx, gy });
     const R = 90;
     this.onEvent(GAME_EVENTS.BARREL_EXPLODED, { x: wx, y: wy, radius: R });
     for (const player of players.values()) {
@@ -397,7 +408,7 @@ export class GameSimulation {
     for (let y = gy - 1; y <= gy + 1; y++) for (let x = gx - 1; x <= gx + 1; x++) {
       if (x <= 0 || y <= 0 || x >= this.map.cols - 1 || y >= this.map.rows - 1) continue;
       const tt = this.map.grid[y][x];
-      if (tt === T.BRICK || tt === T.CRATE) this.map.grid[y][x] = T.EMPTY;
+      if (tt === T.BRICK || tt === T.CRATE) { this.map.grid[y][x] = T.EMPTY; this.onEvent(GAME_EVENTS.TILE_DESTROYED, { gx: x, gy: y }); }
       else if (tt === T.BARREL) setTimeout(() => this._explodeBarrel(x, y, players), 80);
     }
   }

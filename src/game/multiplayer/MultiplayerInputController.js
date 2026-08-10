@@ -194,15 +194,25 @@ export class MultiplayerInputController {
     const lastSeq = serverPlayer.lastSeq ?? 0;
     this._pending = this._pending.filter(p => p.seq > lastSeq);
 
-    // Start from server-authoritative position
+    // Start from server-authoritative position — and, critically, from the
+    // server's authoritative dash state too. Previously dashTime/dashDir/
+    // dashCd were carried forward from the client's own prediction here,
+    // so a locally-predicted dash that the server had actually rejected
+    // (still on cooldown server-side) never got corrected: replay kept
+    // "continuing" a dash the server never started, producing a large,
+    // collision-checked-but-still-wrong displacement every reconcile —
+    // the flicker/jump. Sourcing these from serverPlayer each time keeps
+    // the client's cooldown gate (see stepPrediction) in lockstep with
+    // the server, so an invalid local dash self-corrects within one
+    // reconcile instead of diverging indefinitely.
     const state = {
       x: serverPlayer.x, y: serverPlayer.y,
       angle: serverPlayer.angle, turretAngle: serverPlayer.turretAngle,
       speed: this._predicted.speed, vx: this._predicted.vx, vy: this._predicted.vy,
       alive: serverPlayer.alive, spawning: serverPlayer.spawning || 0,
       maxSpeed: PLAYER.MAX_SPEED, speedBoost: serverPlayer.speedBoost || 0,
-      dashTime: this._predicted.dashTime, dashDir: this._predicted.dashDir,
-      dashCd: this._predicted.dashCd,
+      dashTime: serverPlayer.dashTime || 0, dashDir: serverPlayer.dashDir || 0,
+      dashCd: serverPlayer.dashCd || 0,
     };
 
     // Re-apply unacknowledged inputs
@@ -231,6 +241,7 @@ export class MultiplayerInputController {
     this._predicted.spawning   = state.spawning;
     this._predicted.speedBoost = state.speedBoost;
     this._predicted.dashTime   = state.dashTime;
+    this._predicted.dashDir    = state.dashDir;
     this._predicted.dashCd     = state.dashCd;
 
     this.renderer?.setLocalPredicted(this._predicted);

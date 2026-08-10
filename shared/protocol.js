@@ -60,6 +60,14 @@ export const GAME_EVENTS = {
   POWERUP_PICKED: 'powerup_picked',
   DASH_STARTED: 'dash_started',
   BARREL_EXPLODED: 'barrel_exploded',
+  // Fired whenever any destructible tile (brick/crate/barrel) turns to
+  // T.EMPTY on the server's live grid, so every client's own map copy
+  // (received once at GAME_START) can be kept in sync for both rendering
+  // and local collision prediction. Without this, already-destroyed
+  // obstacles keep blocking client-side movement prediction forever,
+  // producing a "walk through the wall" desync once the server (which
+  // has no such obstacle any more) pulls the reconciled position past it.
+  TILE_DESTROYED: 'tile_destroyed',
 };
 
 export const ROOM_RULES = {
