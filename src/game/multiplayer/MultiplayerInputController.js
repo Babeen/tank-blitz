@@ -59,6 +59,12 @@ function tryMove(state, dx, dy, map) {
 function applyMovement(state, input, dt, map) {
   if (!state.alive || state.spawning > 0) return;
 
+  // Mirrors GameSimulation._updatePlayer()'s cooldown tick — needed so
+  // the client's own dash-availability gating (see stepPrediction) stays
+  // in lockstep with the server's, instead of assuming any dashTime<=0
+  // is immediately re-dashable.
+  if (state.dashCd > 0) state.dashCd -= dt;
+
   let dx = 0, dy = 0;
   if (input.up)    dy -= 1;
   if (input.down)  dy += 1;
@@ -112,6 +118,11 @@ export class MultiplayerInputController {
 
     // Map reference for boundary clamping during prediction
     this._map = null;
+
+    // Drives per-animation-frame prediction stepping (stepPrediction),
+    // decoupled from the 30 Hz network-send tick — see stepPrediction().
+    this._predLast = 0;
+    this._spaceWasDown = false;
 
     this._lastSent = { up: false, down: false, left: false, right: false, turretAngle: 0, shooting: false, dash: false };
     this._lastSentAt = 0;
@@ -173,7 +184,7 @@ export class MultiplayerInputController {
         speed: 0, vx: 0, vy: 0,
         alive: serverPlayer.alive, spawning: serverPlayer.spawning || 0,
         maxSpeed: PLAYER.MAX_SPEED, speedBoost: serverPlayer.speedBoost || 0,
-        dashTime: 0, dashDir: 0,
+        dashTime: 0, dashDir: 0, dashCd: serverPlayer.dashCd || 0,
       };
       this.renderer?.setLocalPredicted(this._predicted);
       return;
@@ -191,6 +202,7 @@ export class MultiplayerInputController {
       alive: serverPlayer.alive, spawning: serverPlayer.spawning || 0,
       maxSpeed: PLAYER.MAX_SPEED, speedBoost: serverPlayer.speedBoost || 0,
       dashTime: this._predicted.dashTime, dashDir: this._predicted.dashDir,
+      dashCd: this._predicted.dashCd,
     };
 
     // Re-apply unacknowledged inputs
@@ -219,6 +231,7 @@ export class MultiplayerInputController {
     this._predicted.spawning   = state.spawning;
     this._predicted.speedBoost = state.speedBoost;
     this._predicted.dashTime   = state.dashTime;
+    this._predicted.dashCd     = state.dashCd;
 
     this.renderer?.setLocalPredicted(this._predicted);
   }
@@ -237,6 +250,52 @@ export class MultiplayerInputController {
 
   /** Returns the current predicted position for the local tank, or null. */
   getPredicted() { return this._predicted; }
+
+  /**
+   * Advances local prediction by one render frame. Called every
+   * requestAnimationFrame via the renderer's frame callback (~60 Hz),
+   * independent of the ~30 Hz network-send tick() below.
+   *
+   * Why this exists: previously prediction only advanced inside tick(),
+   * which runs on a 33ms setInterval. The render loop (rAF, ~60 Hz) just
+   * redrew whatever position tick() last computed, so the local tank's
+   * position only changed on roughly every other rendered frame — a
+   * stair-step that reads as stutter, most visible during a fast dash.
+   * Stepping prediction every rendered frame with the real frame dt fixes
+   * that without touching how often we talk to the server.
+   *
+   * Dash is also triggered here (edge-detected every frame) rather than
+   * in tick(), so a dash starts within one rendered frame of the keypress
+   * instead of waiting for the next network-send tick.
+   */
+  stepPrediction(ts) {
+    if (!this._predLast) this._predLast = ts;
+    const dt = Math.min(0.05, Math.max(0, (ts - this._predLast) / 1000));
+    this._predLast = ts;
+
+    if (!this._active || !this._predicted) return;
+
+    const movement = this.input.getMovementInput();
+    const turretAngle = this.getTurretAngle();
+    const input = {
+      ...movement,
+      turretAngle: turretAngle != null ? turretAngle : this._predicted.turretAngle,
+    };
+
+    // Edge-triggered dash start, gated on cooldown just like the server's
+    // _tryDash(). Direction mirrors GameSimulation._tryDash(): the tank's
+    // current facing angle at the instant the dash begins.
+    const spaceDown = this.input.key('Space');
+    if (spaceDown && !this._spaceWasDown && this._predicted.dashTime <= 0 && this._predicted.dashCd <= 0) {
+      this._predicted.dashTime = PLAYER.DASH_DURATION;
+      this._predicted.dashDir  = this._predicted.angle;
+      this._predicted.dashCd   = PLAYER.DASH_CD;
+    }
+    this._spaceWasDown = spaceDown;
+
+    applyMovement(this._predicted, input, dt, this._map);
+    this.renderer?.setLocalPredicted(this._predicted);
+  }
 
   getTurretAngle() {
     const localTank = this.renderer?.getLocalTank();
@@ -272,21 +331,12 @@ export class MultiplayerInputController {
       const seq = this._seq;
       const dt = SEND_INTERVAL_MS / 1000;
 
-      // Store in pending history for reconciliation
+      // Store in pending history for reconciliation replay (see reconcile()).
+      // Actual movement/dash prediction now happens every render frame in
+      // stepPrediction(), not here — this tick only decides what to send.
       this._pending.push({ seq, input: { ...current }, dt });
       // Cap history to avoid unbounded growth (> 2 s of inputs = network problem)
       if (this._pending.length > 120) this._pending.shift();
-
-      // Apply prediction immediately
-      if (this._predicted) {
-        applyMovement(this._predicted, current, dt, this._map);
-        // Handle dash prediction
-        if (current.dash && this._predicted.dashTime <= 0) {
-          this._predicted.dashTime = PLAYER.DASH_DURATION;
-          this._predicted.dashDir  = this._predicted.angle;
-        }
-        this.renderer?.setLocalPredicted(this._predicted);
-      }
 
       this.networkManager.sendInput({ ...current, seq });
       this._lastSent = { ...current };

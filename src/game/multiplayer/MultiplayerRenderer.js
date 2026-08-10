@@ -72,7 +72,20 @@ export class MultiplayerRenderer {
     this._boundLoop   = this.loop.bind(this);
     this._boundResize = () => this.resize();
     this._last = 0;
+
+    // Optional per-frame hook, run every rAF tick before interpolation/draw.
+    // Used to drive MultiplayerInputController's local-prediction stepping
+    // at full render rate — see setFrameCallback().
+    this._frameCallback = null;
   }
+
+  /**
+   * Registers a function to run once per animation frame, before
+   * interpolation/draw. Lets the input controller advance client-side
+   * prediction at the same 60 Hz cadence as rendering, instead of being
+   * tied to the (slower) network-send rate.
+   */
+  setFrameCallback(fn) { this._frameCallback = fn; }
 
   init() {
     this.resize();
@@ -318,6 +331,7 @@ export class MultiplayerRenderer {
     if (!this.running) return;
     const dt = Math.min(0.05, (ts - this._last) / 1000 || 0);
     this._last = ts;
+    if (this._frameCallback) this._frameCallback(ts);
     this.particles.update(dt);
     if (this.cam.shakeT > 0) { this.cam.shakeT -= dt; this.cam.shakeMag *= 0.88; }
     this._applyInterpolation(ts);

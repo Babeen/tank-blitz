@@ -64,6 +64,10 @@ export default function MultiplayerGameCanvas({ localPlayerId, mapData, matchAct
     inputController.init(canvasRef.current);
     inputRef.current = inputController;
 
+    // Step local-player prediction once per rendered frame (~60 FPS) instead
+    // of once per network-send tick (~30 Hz) — see stepPrediction() for why.
+    renderer.setFrameCallback((ts) => inputController.stepPrediction(ts));
+
     // Hot path: GAME_STATE arrives up to ~30x/sec. Feed it straight into
     // the renderer's own internal state and run client-side reconciliation
     // directly — deliberately bypassing React state/props so a network
@@ -90,6 +94,7 @@ export default function MultiplayerGameCanvas({ localPlayerId, mapData, matchAct
     window.addEventListener('keydown', onKeyDown);
 
     return () => {
+      renderer.setFrameCallback(null);
       renderer.destroy();
       inputController.destroy();
       offGameState();
