@@ -64,6 +64,30 @@ function applyMovement(state, input, dt, map) {
   // in lockstep with the server's, instead of assuming any dashTime<=0
   // is immediately re-dashable.
   if (state.dashCd > 0) state.dashCd -= dt;
+  if (state.dashTime > 0) state.dashTime -= dt;
+
+  // Edge-triggered dash start — mirrors GameSimulation._tryDash()'s
+  // input._dashConsumed pattern (see server's _updatePlayer) via
+  // state._dashHeld, so a held Space key starts exactly one dash per
+  // press instead of restarting it every call.
+  //
+  // This used to live ONLY in stepPrediction(), mutating _predicted
+  // directly. That meant the deterministic replay used by reconcile()
+  // had no way to (re)start a dash for a pending, not-yet-acknowledged
+  // input — replaying a `dash:true` entry silently fell through to
+  // normal movement. So while a dash was in flight but unacknowledged,
+  // every reconcile rebuilt state from the server's still-pre-dash
+  // position and replayed it as non-dashed, producing a huge position
+  // error that got hard-snapped (see errDist below) — the local
+  // teleport/flicker. Moving the trigger here makes stepPrediction's
+  // live step and reconcile's replay run the exact same logic, so they
+  // agree on where a dash is and reconciliation has nothing to correct.
+  if (input.dash && !state._dashHeld && state.dashCd <= 0) {
+    state.dashCd   = PLAYER.DASH_CD;
+    state.dashTime = PLAYER.DASH_DURATION;
+    state.dashDir  = state.angle;
+  }
+  state._dashHeld = !!input.dash;
 
   let dx = 0, dy = 0;
   if (input.up)    dy -= 1;
@@ -73,7 +97,6 @@ function applyMovement(state, input, dt, map) {
   const mag = Math.hypot(dx, dy);
 
   if (state.dashTime > 0) {
-    state.dashTime -= dt;
     state.vx = Math.cos(state.dashDir) * state.maxSpeed * PLAYER.DASH_SPEED_MUL;
     state.vy = Math.sin(state.dashDir) * state.maxSpeed * PLAYER.DASH_SPEED_MUL;
   } else {
@@ -122,7 +145,6 @@ export class MultiplayerInputController {
     // Drives per-animation-frame prediction stepping (stepPrediction),
     // decoupled from the 30 Hz network-send tick — see stepPrediction().
     this._predLast = 0;
-    this._spaceWasDown = false;
 
     this._lastSent = { up: false, down: false, left: false, right: false, turretAngle: 0, shooting: false, dash: false };
     this._lastSentAt = 0;
@@ -185,6 +207,7 @@ export class MultiplayerInputController {
         alive: serverPlayer.alive, spawning: serverPlayer.spawning || 0,
         maxSpeed: PLAYER.MAX_SPEED, speedBoost: serverPlayer.speedBoost || 0,
         dashTime: 0, dashDir: 0, dashCd: serverPlayer.dashCd || 0,
+        _dashHeld: false,
       };
       this.renderer?.setLocalPredicted(this._predicted);
       return;
@@ -213,6 +236,13 @@ export class MultiplayerInputController {
       maxSpeed: PLAYER.MAX_SPEED, speedBoost: serverPlayer.speedBoost || 0,
       dashTime: serverPlayer.dashTime || 0, dashDir: serverPlayer.dashDir || 0,
       dashCd: serverPlayer.dashCd || 0,
+      // Seed the dash edge-tracker from whether the server says a dash is
+      // already in progress: if so, that press has already been consumed
+      // and replaying further `dash:true` entries must not restart it. If
+      // not, the first pending entry with dash:true is a genuine new press
+      // the server hasn't processed yet, and should trigger one (see
+      // applyMovement).
+      _dashHeld: (serverPlayer.dashTime || 0) > 0,
     };
 
     // Re-apply unacknowledged inputs
@@ -243,6 +273,7 @@ export class MultiplayerInputController {
     this._predicted.dashTime   = state.dashTime;
     this._predicted.dashDir    = state.dashDir;
     this._predicted.dashCd     = state.dashCd;
+    this._predicted._dashHeld  = state._dashHeld;
 
     this.renderer?.setLocalPredicted(this._predicted);
   }
@@ -291,18 +322,11 @@ export class MultiplayerInputController {
     const input = {
       ...movement,
       turretAngle: turretAngle != null ? turretAngle : this._predicted.turretAngle,
+      // Dash start/hold is now handled inside applyMovement itself (edge
+      // detection via state._dashHeld), the same code path reconcile()'s
+      // replay uses — see applyMovement for why that unification matters.
+      dash: this.input.key('Space'),
     };
-
-    // Edge-triggered dash start, gated on cooldown just like the server's
-    // _tryDash(). Direction mirrors GameSimulation._tryDash(): the tank's
-    // current facing angle at the instant the dash begins.
-    const spaceDown = this.input.key('Space');
-    if (spaceDown && !this._spaceWasDown && this._predicted.dashTime <= 0 && this._predicted.dashCd <= 0) {
-      this._predicted.dashTime = PLAYER.DASH_DURATION;
-      this._predicted.dashDir  = this._predicted.angle;
-      this._predicted.dashCd   = PLAYER.DASH_CD;
-    }
-    this._spaceWasDown = spaceDown;
 
     applyMovement(this._predicted, input, dt, this._map);
     this.renderer?.setLocalPredicted(this._predicted);
@@ -336,19 +360,34 @@ export class MultiplayerInputController {
     };
 
     const now = performance.now();
+
+    // Record this tick in the replay buffer unconditionally, every
+    // SEND_INTERVAL_MS — independent of whether the input actually changed.
+    //
+    // Previously this push only happened when `changed` (or the heartbeat)
+    // was true, because sending-to-server and recording-for-replay were the
+    // same branch. That's fine for network traffic, but it meant holding a
+    // direction key with no other change produced almost no pending entries
+    // for up to HEARTBEAT_MS at a time. reconcile() replays exactly the
+    // dt-per-entry stored here on top of the last acknowledged server
+    // position — with entries missing, that replay under-simulated real
+    // elapsed time versus what stepPrediction() had already rendered every
+    // frame. Every ~33ms reconcile then lerped/snapped the visible tank back
+    // toward that stale, under-advanced position — the "laggy" local
+    // movement. Recording every tick (regardless of send) fixes the replay
+    // without changing what gets sent over the wire.
+    this._seq++;
+    const seq = this._seq;
+    const dt = SEND_INTERVAL_MS / 1000;
+    this._pending.push({ seq, input: { ...current }, dt });
+    // Cap history to avoid unbounded growth (> 2 s of inputs = network problem)
+    if (this._pending.length > 120) this._pending.shift();
+
+    // Only transmit to the server when the input actually changed (or the
+    // heartbeat interval elapsed) — network send behavior/frequency is
+    // unchanged from before.
     const changed = !inputsEqual(current, this._lastSent) || current.dash;
     if (changed || now - this._lastSentAt >= HEARTBEAT_MS) {
-      this._seq++;
-      const seq = this._seq;
-      const dt = SEND_INTERVAL_MS / 1000;
-
-      // Store in pending history for reconciliation replay (see reconcile()).
-      // Actual movement/dash prediction now happens every render frame in
-      // stepPrediction(), not here — this tick only decides what to send.
-      this._pending.push({ seq, input: { ...current }, dt });
-      // Cap history to avoid unbounded growth (> 2 s of inputs = network problem)
-      if (this._pending.length > 120) this._pending.shift();
-
       this.networkManager.sendInput({ ...current, seq });
       this._lastSent = { ...current };
       this._lastSentAt = now;
