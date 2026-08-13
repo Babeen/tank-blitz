@@ -250,7 +250,8 @@ export class MultiplayerInputController {
       applyMovement(state, p.input, p.dt, this._map);
     }
 
-    // Smooth small errors, snap large ones
+    // Smooth small errors, snap large ones. Applied identically to velocity
+    // (vx/vy/speed), not just position — see below for why that matters.
     const errX = state.x - this._predicted.x;
     const errY = state.y - this._predicted.y;
     const errDist = Math.hypot(errX, errY);
@@ -258,15 +259,35 @@ export class MultiplayerInputController {
       // Smooth correction over ~3 frames
       this._predicted.x = lerp(this._predicted.x, state.x, 0.3);
       this._predicted.y = lerp(this._predicted.y, state.y, 0.3);
+      // VELOCITY_GRIP (see applyMovement) is a flat per-call blend toward
+      // target velocity, not a dt-scaled one. That makes it step-count
+      // sensitive: covering the same real 33ms takes ~2 calls during live
+      // 60 Hz stepPrediction (compounding to ~58% convergence) but only 1
+      // call per pending entry during this replay (35% convergence). So
+      // state.vx/vy/speed from the replay is *expected* to differ slightly
+      // from what stepPrediction already smoothly converged to — that's
+      // integration granularity, not a real error. Previously vx/vy/speed
+      // were hard-overwritten every reconcile regardless, which discarded
+      // the smooth 60 Hz value and replaced it with the coarser one on
+      // every server snapshot (~30/sec) — a small but constant velocity
+      // discontinuity that read as WASD movement being less smooth than
+      // single-player (dash was unaffected: its velocity is a direct
+      // formula, not this accumulated blend, so live and replay always
+      // agree exactly). Smoothing it the same way position already is
+      // keeps it converging toward the authoritative value without
+      // discarding the finer-grained local motion each snapshot.
+      this._predicted.vx    = lerp(this._predicted.vx, state.vx, 0.3);
+      this._predicted.vy    = lerp(this._predicted.vy, state.vy, 0.3);
+      this._predicted.speed = lerp(this._predicted.speed, state.speed, 0.3);
     } else {
       this._predicted.x = state.x;
       this._predicted.y = state.y;
+      this._predicted.vx = state.vx;
+      this._predicted.vy = state.vy;
+      this._predicted.speed = state.speed;
     }
     this._predicted.angle      = state.angle;
     this._predicted.turretAngle = state.turretAngle;
-    this._predicted.speed      = state.speed;
-    this._predicted.vx         = state.vx;
-    this._predicted.vy         = state.vy;
     this._predicted.alive      = state.alive;
     this._predicted.spawning   = state.spawning;
     this._predicted.speedBoost = state.speedBoost;
