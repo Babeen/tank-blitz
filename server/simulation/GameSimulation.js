@@ -29,7 +29,7 @@ export class GameSimulation {
    * @param {import('../GameRoom.js').GameRoom} room
    * @param {{ tickRate?: number, onTick?: Function, onEvent?: Function }} opts
    */
-  constructor(room, { tickRate = 30, onTick = () => {}, onEvent = () => {}, onMatchEnd = () => {}, onError = () => {}, killsToWin = null } = {}) {
+  constructor(room, { tickRate = 30, onTick = () => {}, onEvent = () => {}, onMatchEnd = () => {}, onError = () => {}, killsToWin = null, mapId = undefined } = {}) {
     this.room = room;
     this.tickRate = tickRate;
     this.onTick = onTick;
@@ -59,7 +59,7 @@ export class GameSimulation {
 
     // Map
     this.map = new MapState();
-    this.map.generate();
+    this.map.generate(mapId);
 
     this._intervalId = null;
   }

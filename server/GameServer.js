@@ -3,7 +3,7 @@ import { GameRoom } from './GameRoom.js';
 import { GameSimulation } from './simulation/GameSimulation.js';
 import { RateLimiter } from './RateLimiter.js';
 import { logger } from './logger.js';
-import { EVENTS, ROOM_RULES, MATCH_STATES, MATCH_RULES } from '../shared/protocol.js';
+import { EVENTS, ROOM_RULES, MATCH_STATES, MATCH_RULES, MAPS } from '../shared/protocol.js';
 
 const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function randomRoomCode(length) {
@@ -49,6 +49,7 @@ export class GameServer {
     this._limiters = {
       createRoom:     new RateLimiter(5, 10_000),
       joinRoom:       new RateLimiter(10, 10_000),
+      setMap:         new RateLimiter(10, 5_000),
       startMatch:     new RateLimiter(5, 5_000),
       rematch:        new RateLimiter(10, 5_000),
       returnToLobby:  new RateLimiter(5, 5_000),
@@ -129,6 +130,7 @@ export class GameServer {
     socket.on(EVENTS.CLIENT.CREATE_ROOM,  this._safe(socket, 'create_room', () => this.handleCreateRoom(socket)));
     socket.on(EVENTS.CLIENT.JOIN_ROOM,    this._safe(socket, 'join_room', (p) => this.handleJoinRoom(socket, p)));
     socket.on(EVENTS.CLIENT.LEAVE_ROOM,   this._safe(socket, 'leave_room', () => this.handleLeaveRoom(socket)));
+    socket.on(EVENTS.CLIENT.SET_MAP,      this._safe(socket, 'set_map', (p) => this.handleSetMap(socket, p)));
     socket.on(EVENTS.CLIENT.START_MATCH,  this._safe(socket, 'start_match', () => this.handleStartMatch(socket)));
     socket.on(EVENTS.CLIENT.PLAYER_INPUT, this._safe(socket, 'player_input', (input) => this.handlePlayerInput(socket, input)));
     socket.on(EVENTS.CLIENT.REJOIN_ROOM,  this._safe(socket, 'rejoin_room', (p) => this.handleRejoin(socket, p)));
@@ -162,7 +164,7 @@ export class GameServer {
     socket.data.roomCode = code;
     const token = this._generateToken();
     this._reconnectTokens.set(token, { roomCode: code, playerId: socket.id, name: player.name, expiresAt: Date.now() + RECONNECT_TOKEN_TTL_MS });
-    socket.emit(EVENTS.SERVER.ROOM_CREATED, { roomCode: code, players: room.getPlayers(), you: player, reconnectToken: token });
+    socket.emit(EVENTS.SERVER.ROOM_CREATED, { roomCode: code, players: room.getPlayers(), you: player, reconnectToken: token, mapId: room.getMapId(), maps: MAPS });
     logger.info(`Room created: ${code} (host ${socket.id})`);
   }
 
@@ -184,7 +186,7 @@ export class GameServer {
     socket.data.roomCode = code;
     const token = this._generateToken();
     this._reconnectTokens.set(token, { roomCode: code, playerId: socket.id, name: player.name, expiresAt: Date.now() + RECONNECT_TOKEN_TTL_MS });
-    socket.emit(EVENTS.SERVER.ROOM_JOINED, { roomCode: code, players: room.getPlayers(), you: player, reconnectToken: token });
+    socket.emit(EVENTS.SERVER.ROOM_JOINED, { roomCode: code, players: room.getPlayers(), you: player, reconnectToken: token, mapId: room.getMapId(), maps: MAPS });
     socket.to(code).emit(EVENTS.SERVER.PLAYER_JOINED, { player, players: room.getPlayers() });
     this.io.to(code).emit(EVENTS.SERVER.ROOM_UPDATED, { players: room.getPlayers() });
     logger.info(`Player joined room ${code}: ${socket.id}`);
@@ -324,6 +326,23 @@ export class GameServer {
     }
   }
 
+  // ── Map selection (lobby only) ──────────────────────────────────────────
+
+  handleSetMap(socket, payload) {
+    if (this._rateLimited(socket, this._limiters.setMap, 'set_map')) return;
+
+    const code = socket.data.roomCode;
+    const room = code ? this.rooms.get(code) : null;
+    if (!room)                              { socket.emit(EVENTS.SERVER.SERVER_ERROR, { message: 'You are not in a room.' }); return; }
+    if (!room.isHost(socket.id))            { socket.emit(EVENTS.SERVER.SERVER_ERROR, { message: 'Only the host can change the map.' }); return; }
+    if (room.matchState !== MATCH_STATES.LOBBY) { socket.emit(EVENTS.SERVER.SERVER_ERROR, { message: 'Cannot change the map once a match has started.' }); return; }
+
+    const mapId = payload && typeof payload.mapId === 'string' ? payload.mapId : '';
+    if (!room.setMap(mapId)) { socket.emit(EVENTS.SERVER.SERVER_ERROR, { message: 'Unknown map.' }); return; }
+
+    this.io.to(code).emit(EVENTS.SERVER.ROOM_UPDATED, { players: room.getPlayers(), mapId: room.getMapId() });
+  }
+
   // ── Match start / countdown / active (Parts 4-7) ────────────────────────────
 
   handleStartMatch(socket) {
@@ -340,7 +359,7 @@ export class GameServer {
     this.simulations.set(code, simulation);
     room.beginNewMatch(simulation.map.spawnPoints());
 
-    logger.info(`Match started: room ${code} (${room.players.size} players)`);
+    logger.info(`Match started: room ${code} (${room.players.size} players, map ${room.getMapId()})`);
     this._startCountdown(code, room, simulation);
   }
 
@@ -348,6 +367,7 @@ export class GameServer {
     return new GameSimulation(room, {
       tickRate: 30,
       killsToWin: MATCH_RULES.KILLS_TO_WIN,
+      mapId: room.getMapId(),
       onTick: (state) => maybeDelay(() => this.io.to(code).emit(EVENTS.SERVER.GAME_STATE, state)),
       onEvent: (type, data) => maybeDelay(() => this.io.to(code).emit(EVENTS.SERVER.GAME_EVENT, { type, ...data })),
       onMatchEnd: (reason) => this.endMatch(code, reason),

@@ -43,6 +43,7 @@ function ConnectionBadge({ connState, ping }) {
 
 export default function MultiplayerGameCanvas({ localPlayerId, mapData, matchActive }) {
   const canvasRef     = useRef(null);
+  const minimapRef    = useRef(null);
   const rendererRef   = useRef(null);
   const inputRef      = useRef(null);
   const localIdRef    = useRef(localPlayerId);
@@ -56,7 +57,7 @@ export default function MultiplayerGameCanvas({ localPlayerId, mapData, matchAct
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    const renderer = new MultiplayerRenderer(canvasRef.current);
+    const renderer = new MultiplayerRenderer(canvasRef.current, minimapRef.current);
     renderer.init();
     rendererRef.current = renderer;
 
@@ -117,6 +118,7 @@ export default function MultiplayerGameCanvas({ localPlayerId, mapData, matchAct
   return (
     <>
       <canvas id="mp-game" ref={canvasRef} />
+      <canvas id="mp-minimap" ref={minimapRef} width="130" height="96" />
       <div style={{ position: 'absolute', top: 14, right: 14, zIndex: 21 }}>
         <ConnectionBadge connState={connState} ping={ping} />
       </div>

@@ -1,10 +1,11 @@
 import React from 'react';
 
-export default function LobbyScreen({ roomCode, players, you, onStart, onLeave, error, connState }) {
+export default function LobbyScreen({ roomCode, players, you, onStart, onLeave, error, connState, maps, mapId, onSetMap }) {
   // Part 26 — never allow starting a match while the connection is
   // unavailable; the host would just get a silently-dropped request.
   const connOk = connState === 'connected';
   const canStart = !!you?.isHost && players.length >= 2 && connOk;
+  const selectedMap = maps?.find((m) => m.id === mapId);
 
   return (
     <div className="screen" id="lobbyScreen">
@@ -24,6 +25,29 @@ export default function LobbyScreen({ roomCode, players, you, onStart, onLeave, 
           ))}
         </ul>
       </div>
+
+      {maps && maps.length > 0 && (
+        <div className="panel">
+          <p style={{ marginBottom: 10 }}>MAP</p>
+          {you?.isHost ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+              {maps.map((m) => (
+                <button
+                  key={m.id}
+                  className={m.id === mapId ? 'btn small primary' : 'btn small'}
+                  onClick={() => onSetMap?.(m.id)}
+                  disabled={!connOk}
+                >
+                  {m.name}
+                  <span style={{ display: 'block', fontSize: 10, opacity: 0.75 }}>{m.cols}×{m.rows}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="diff-desc">{selectedMap ? selectedMap.name : 'Waiting for host…'}</div>
+          )}
+        </div>
+      )}
 
       {error && <div className="diff-desc" style={{ color: '#ff6b6b' }}>{error}</div>}
       {!connOk && <div className="diff-desc" style={{ color: '#ffcf3f' }}>{connState === 'reconnecting' ? 'Reconnecting…' : 'Connection unavailable — waiting to reconnect…'}</div>}

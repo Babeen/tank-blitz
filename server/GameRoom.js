@@ -1,4 +1,4 @@
-import { ROOM_RULES, PLAYER_DEFAULTS, MATCH_STATES } from '../shared/protocol.js';
+import { ROOM_RULES, PLAYER_DEFAULTS, MATCH_STATES, MAPS, DEFAULT_MAP_ID } from '../shared/protocol.js';
 import { PLAYER } from '../shared/gameConstants.js';
 
 export class GameRoom {
@@ -7,6 +7,12 @@ export class GameRoom {
     this.players = new Map(); // socketId -> { id, name, isHost, ready }
     this.matchStarted = false;
     this.gameState = { players: new Map() };
+
+    // Host-selected map for the *next* match. Sticky across rematches —
+    // only changes when the host explicitly picks a different one from
+    // the lobby — and defaults to the original map so anyone who doesn't
+    // touch the picker gets the same match they always got.
+    this.selectedMapId = DEFAULT_MAP_ID;
 
     // ── Match lifecycle state (server-authoritative) ──────────────────────
     this.matchState = MATCH_STATES.LOBBY;
@@ -50,6 +56,14 @@ export class GameRoom {
   isHost(id)   { return this.players.get(id)?.isHost === true; }
   hasEnoughPlayers() { return this.players.size >= ROOM_RULES.MIN_PLAYERS_TO_START; }
   hasStarted() { return this.matchStarted; }
+
+  /** Returns true if `mapId` is valid and was applied. */
+  setMap(mapId) {
+    if (!MAPS.some((m) => m.id === mapId)) return false;
+    this.selectedMapId = mapId;
+    return true;
+  }
+  getMapId() { return this.selectedMapId; }
 
   // ── Match lifecycle helpers ────────────────────────────────────────────
 

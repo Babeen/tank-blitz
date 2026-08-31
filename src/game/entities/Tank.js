@@ -8,6 +8,7 @@ export class Tank {
     this.maxHp = o.maxHp || 100; this.hp = this.maxHp; this.color = o.color || '#6bd35a';
     this.turretColor = o.turretColor || '#4fae42'; this.team = o.team || 'player'; this.dead = false;
     this.fireCd = 0; this.weapon = 'cannon'; this.ammo = { cannon: Infinity };
+    this.dmgMult = o.dmgMult || 1; this.reloadMult = o.reloadMult || 1;
     this.dashCd = 0; this.dashTime = 0; this.dashDir = 0; this.hitFlash = 0;
     this.shield = 0; this.speedBoost = 0; this.rapidFire = 0; this.tripleShot = 0;
     this.scoreMult = 1; this.scoreMultTime = 0; this.coinMagnet = 0; this.frozen = 0;
@@ -96,6 +97,7 @@ export class Tank {
     if (!this.canShoot()) return;
     const w = WEAPONS[this.weapon]; let cd = w.cd; if (this.rapidFire > 0) cd *= 0.4;
     if (this.team === 'enemy') cd = this._enemyCd * Utils.rand(0.85, 1.2);
+    else cd *= this.reloadMult;
     this.fireCd = cd;
     if (this.weapon !== 'cannon' && this.ammo[this.weapon] !== Infinity) {
       this.ammo[this.weapon]--; if (this.ammo[this.weapon] <= 0) this.weapon = 'cannon';
@@ -111,7 +113,7 @@ export class Tank {
     const spdMul = this.team === 'enemy' ? game.diffCfg().bulletSpeed : 1;
     for (const a of shots) {
       game.bullets.push(game.bulletPool.get(mx, my, a, {
-        speed: w.speed * spdMul, damage: w.dmg * (this.team === 'enemy' ? 0.85 : 1),
+        speed: w.speed * spdMul, damage: w.dmg * (this.team === 'enemy' ? 0.85 : this.dmgMult),
         owner: this.team, bounces: w.bounces, color: w.color,
         radius: w.rocket ? 6 : (w.laser ? 4 : 5), rocket: w.rocket, laser: w.laser, rail: w.rail, explosive: w.explosive
       }));

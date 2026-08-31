@@ -6,6 +6,7 @@ export const EVENTS = {
     CREATE_ROOM: 'create_room',
     JOIN_ROOM: 'join_room',
     LEAVE_ROOM: 'leave_room',
+    SET_MAP: 'set_map',
     START_MATCH: 'start_match',
     PLAYER_INPUT: 'player_input',
     REJOIN_ROOM: 'rejoin_room',
@@ -76,21 +77,37 @@ export const ROOM_RULES = {
   ROOM_CODE_LENGTH: 5,
 };
 
-// Map dimensions in tiles — server generates the map, clients receive the grid.
-export const MAP_CONFIG = {
-  COLS: 20,
-  ROWS: 14,
-  THEME: 'arena',
-};
-
-// Spawn corners in tile coordinates (converted to world coords by server).
-// Cleared areas in MapGenerator.generate() guarantee these are always open.
-export const SPAWN_TILE_POINTS = [
-  { tx: 2, ty: 2,                    angle: 0 },
-  { tx: MAP_CONFIG.COLS - 3, ty: MAP_CONFIG.ROWS - 3, angle: Math.PI },
-  { tx: MAP_CONFIG.COLS - 3, ty: 2,  angle: Math.PI },
-  { tx: 2,                   ty: MAP_CONFIG.ROWS - 3, angle: 0 },
+// Selectable multiplayer maps — the host picks one from the lobby before
+// starting a match. 'classic' matches the original single-map size/theme
+// so existing matches/replays-of-habit don't change unless a host opts in;
+// the other three are larger, Mini Militia-style open arenas with more
+// room to maneuver and flank. Server generates the map, clients receive
+// the grid (see MapState.toJSON()).
+export const MAPS = [
+  { id: 'classic',        name: 'Classic Arena',  cols: 20, rows: 14, theme: 'arena' },
+  { id: 'docklands',      name: 'Docklands',       cols: 30, rows: 20, theme: 'factory' },
+  { id: 'jungle_outpost', name: 'Jungle Outpost',  cols: 28, rows: 22, theme: 'forest' },
+  { id: 'desert_siege',   name: 'Desert Siege',    cols: 32, rows: 18, theme: 'desert' },
 ];
+
+export const DEFAULT_MAP_ID = 'classic';
+
+export function getMapDef(mapId) {
+  return MAPS.find((m) => m.id === mapId) || MAPS.find((m) => m.id === DEFAULT_MAP_ID);
+}
+
+// Spawn corners in tile coordinates, generalized to any map's dimensions
+// (world coords are computed by the server). Cleared areas in
+// MapGenerator.generate() guarantee these are always open regardless of
+// map size.
+export function spawnTilePointsFor(cols, rows) {
+  return [
+    { tx: 2,         ty: 2,         angle: 0 },
+    { tx: cols - 3,  ty: rows - 3,  angle: Math.PI },
+    { tx: cols - 3,  ty: 2,         angle: Math.PI },
+    { tx: 2,         ty: rows - 3,  angle: 0 },
+  ];
+}
 
 export const PLAYER_DEFAULTS = {
   HP: 100,

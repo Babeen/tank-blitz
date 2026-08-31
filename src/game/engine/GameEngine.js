@@ -1,4 +1,5 @@
 import { TILE, T, THEMES, WEAPONS, ENEMY_TYPES, PU_TYPES, DIFF, LEVELS } from '../constants/index.js';
+import { UPGRADE_TRACKS, UPGRADE_DEFAULTS, upgradeCost } from '../constants/upgrades.js';
 import { Utils } from '../utils/index.js';
 import { AudioManager } from '../systems/Audio.js';
 import { InputManager } from '../systems/Input.js';
@@ -21,7 +22,7 @@ export class GameEngine {
     this.stats = { kills: 0, coins: 0, score: 0, wave: 1, lives: 3, p2lives: 3, time: 0 };
     this.combo = 0; this.comboTimer = 0; this.waveDelay = 0; this.last = 0; this.running = false;
     this.bossRef = null; this.tutorial = null;
-    this.settings = { sound: true, shake: true, particles: true };
+    this.settings = this.loadSettings();
     this.audio = new AudioManager();
     this.input = new InputManager();
     this.map = new MapGenerator();
@@ -70,13 +71,22 @@ export class GameEngine {
   }
 
   buildLevel() {
-    const cols = Utils.clamp(Math.round(this.W / TILE) + 2, 15, 22), rows = Utils.clamp(Math.round(this.H / TILE) + 2, 11, 16);
+    // Size the map to roughly match the viewport (in tiles) so the play
+    // area fills the screen instead of leaving empty background around a
+    // map that's capped much smaller than the window. The upper bound is
+    // still capped for generation/perf sanity on very large or ultrawide
+    // displays — the camera-centering fallback below covers any remainder.
+    const cols = Utils.clamp(Math.round(this.W / TILE) + 2, 15, 34), rows = Utils.clamp(Math.round(this.H / TILE) + 2, 11, 22);
     this.map.generate(cols, rows, this.themeForWave());
     this.players = [];
-    const p1 = new Tank(2 * TILE + 24, 2 * TILE + 24, { color: '#6bd35a', turretColor: '#4fae42', team: 'player', maxHp: 100 });
+    // Garage upgrades (purchased with banked coins) apply to the player's
+    // own tank(s) in single-player only — multiplayer stays vanilla so
+    // every match is on equal footing.
+    const up = this.getUpgradedStats();
+    const p1 = new Tank(2 * TILE + 24, 2 * TILE + 24, { color: '#6bd35a', turretColor: '#4fae42', team: 'player', maxHp: up.maxHp, maxSpeed: up.maxSpeed, dmgMult: up.dmgMult, reloadMult: up.reloadMult });
     this.players.push(p1);
     if (this.mode === '2player') {
-      const p2 = new Tank((cols - 3) * TILE, (rows - 3) * TILE, { color: '#5aa8ff', turretColor: '#2f7fe0', team: 'p2', maxHp: 100, angle: Math.PI });
+      const p2 = new Tank((cols - 3) * TILE, (rows - 3) * TILE, { color: '#5aa8ff', turretColor: '#2f7fe0', team: 'p2', maxHp: up.maxHp, maxSpeed: up.maxSpeed, dmgMult: up.dmgMult, reloadMult: up.reloadMult, angle: Math.PI });
       this.players.push(p2);
     }
   }
@@ -184,8 +194,14 @@ export class GameEngine {
     this.cam.zoom = Utils.lerp(this.cam.zoom, this.cam.targetZoom, dt * 3);
     this.cam.x = Utils.lerp(this.cam.x, fx - this.W / (2 * this.cam.zoom), dt * 6);
     this.cam.y = Utils.lerp(this.cam.y, fy - this.H / (2 * this.cam.zoom), dt * 6);
-    this.cam.x = Utils.clamp(this.cam.x, 0, Math.max(0, this.map.worldW() - this.W / this.cam.zoom));
-    this.cam.y = Utils.clamp(this.cam.y, 0, Math.max(0, this.map.worldH() - this.H / this.cam.zoom));
+    // When the map is narrower/shorter than the viewport, center it instead
+    // of pinning to the top-left corner — pinning left a permanent block of
+    // empty background along the right and/or bottom edge on any window
+    // bigger than the map itself.
+    const maxCamX = this.map.worldW() - this.W / this.cam.zoom;
+    const maxCamY = this.map.worldH() - this.H / this.cam.zoom;
+    this.cam.x = maxCamX > 0 ? Utils.clamp(this.cam.x, 0, maxCamX) : maxCamX / 2;
+    this.cam.y = maxCamY > 0 ? Utils.clamp(this.cam.y, 0, maxCamY) : maxCamY / 2;
     if (this.cam.shakeT > 0) { this.cam.shakeT -= dt; this.cam.shakeMag *= 0.9; }
     if (this.state === 'tutorial' && this.tutorial) this.tutorial.update(dt);
 
@@ -297,7 +313,13 @@ export class GameEngine {
   endGame(victory) {
     if (this.state === 'over') return; this.state = 'over'; this.running = false;
     if (victory) this.audio.victory(); else this.audio.defeat();
-    this.callbacks.onStateChange(this.state, this.mode, { victory, stats: this.stats });
+    const isNewBest = this.saveHighScore(this.mode, this.stats.score, this.stats.wave);
+    const best = this.getHighScore(this.mode);
+    // Coins earned this run are banked to the persistent wallet regardless
+    // of win/loss, spendable later in the Garage.
+    const wallet = this.loadWallet() + this.stats.coins;
+    this.saveWallet(wallet);
+    this.callbacks.onStateChange(this.state, this.mode, { victory, stats: this.stats, isNewBest, best, wallet });
   }
 
   /* ---------- Render ---------- */
@@ -371,7 +393,12 @@ export class GameEngine {
   }
 
   drawBushTops() {
-    for (let y = 0; y < this.map.rows; y++) for (let x = 0; x < this.map.cols; x++) if (this.map.grid[y][x] === T.BUSH) {
+    // Cull to the visible tile range, same as drawMap() — previously this
+    // walked the entire grid every frame regardless of camera position,
+    // which gets expensive on larger maps.
+    const startX = Math.floor(this.cam.x / TILE), startY = Math.floor(this.cam.y / TILE);
+    const endX = Math.ceil((this.cam.x + this.W / this.cam.zoom) / TILE), endY = Math.ceil((this.cam.y + this.H / this.cam.zoom) / TILE);
+    for (let y = Math.max(0, startY); y < Math.min(this.map.rows, endY); y++) for (let x = Math.max(0, startX); x < Math.min(this.map.cols, endX); x++) if (this.map.grid[y][x] === T.BUSH) {
       const px = x * TILE, py = y * TILE; this.ctx.globalAlpha = 0.85; this.ctx.fillStyle = '#2e7d3a';
       for (const [ox, oy, r] of [[TILE / 2, TILE / 2, 15], [TILE / 3, TILE / 2.5, 10], [2 * TILE / 3, TILE / 2.6, 10], [TILE / 2, 2 * TILE / 3, 11]]) { this.ctx.beginPath(); this.ctx.arc(px + ox, py + oy, r, 0, Math.PI * 2); this.ctx.fill(); }
       this.ctx.fillStyle = '#3d9a4a'; this.ctx.beginPath(); this.ctx.arc(px + TILE / 2 - 3, py + TILE / 2 - 3, 7, 0, Math.PI * 2); this.ctx.fill(); this.ctx.globalAlpha = 1;
@@ -419,8 +446,92 @@ export class GameEngine {
     this.callbacks.onStateChange(this.state); this.last = performance.now();
   }
 
-  setSetting(k, v) { this.settings[k] = v; if (k === 'sound') this.audio.setEnabled(v); if (k === 'particles') this.particles.setEnabled(v); }
+  setSetting(k, v) { this.settings[k] = v; if (k === 'sound') this.audio.setEnabled(v); if (k === 'particles') this.particles.setEnabled(v); this.saveSettings(); }
   getSettings() { return this.settings; }
+
+  /* ---------- Persistence (localStorage) ---------- */
+  loadSettings() {
+    const defaults = { sound: true, shake: true, particles: true };
+    try {
+      const raw = localStorage.getItem('tankBlitz.settings');
+      if (raw) return { ...defaults, ...JSON.parse(raw) };
+    } catch (e) { /* localStorage unavailable (private mode, SSR, etc.) — fall back to defaults */ }
+    return defaults;
+  }
+
+  saveSettings() {
+    try { localStorage.setItem('tankBlitz.settings', JSON.stringify(this.settings)); } catch (e) { /* ignore write failures */ }
+  }
+
+  getHighScore(mode) {
+    try {
+      const raw = localStorage.getItem('tankBlitz.highscores');
+      const all = raw ? JSON.parse(raw) : {};
+      return all[mode] || { score: 0, wave: 0 };
+    } catch (e) { return { score: 0, wave: 0 }; }
+  }
+
+  /** Persists a new best if `score` beats the stored one for `mode`. Returns whether it was a new best. */
+  saveHighScore(mode, score, wave) {
+    try {
+      const raw = localStorage.getItem('tankBlitz.highscores');
+      const all = raw ? JSON.parse(raw) : {};
+      const cur = all[mode] || { score: 0, wave: 0 };
+      const isNew = score > cur.score;
+      if (isNew) { all[mode] = { score, wave }; localStorage.setItem('tankBlitz.highscores', JSON.stringify(all)); }
+      return isNew;
+    } catch (e) { return false; }
+  }
+
+  /* ---------- Garage: coin wallet + upgrades (single-player only) ---------- */
+
+  loadWallet() {
+    try { return parseInt(localStorage.getItem('tankBlitz.wallet'), 10) || 0; } catch (e) { return 0; }
+  }
+
+  saveWallet(v) {
+    try { localStorage.setItem('tankBlitz.wallet', String(Math.max(0, v))); } catch (e) { /* ignore write failures */ }
+  }
+
+  loadUpgrades() {
+    try {
+      const raw = localStorage.getItem('tankBlitz.upgrades');
+      if (raw) return { ...UPGRADE_DEFAULTS, ...JSON.parse(raw) };
+    } catch (e) { /* localStorage unavailable — fall back to defaults */ }
+    return { ...UPGRADE_DEFAULTS };
+  }
+
+  saveUpgrades(u) {
+    try { localStorage.setItem('tankBlitz.upgrades', JSON.stringify(u)); } catch (e) { /* ignore write failures */ }
+  }
+
+  // Translates purchased upgrade levels into the stat bundle applied to the
+  // player's tank(s) at buildLevel() time.
+  getUpgradedStats() {
+    const u = this.loadUpgrades();
+    return {
+      maxHp: 100 + u.armor * 10,
+      maxSpeed: 150 + u.engine * 8,
+      dmgMult: 1 + u.firepower * 0.08,
+      reloadMult: Math.max(0.4, 1 - u.reload * 0.06),
+    };
+  }
+
+  /** Attempts to spend coins to raise one upgrade track by a level. Returns { ok, reason?, upgrades, wallet }. */
+  purchaseUpgrade(trackKey) {
+    const track = UPGRADE_TRACKS.find((t) => t.key === trackKey);
+    const upgrades = this.loadUpgrades();
+    const wallet = this.loadWallet();
+    if (!track) return { ok: false, reason: 'unknown', upgrades, wallet };
+    const level = upgrades[trackKey] || 0;
+    if (level >= track.maxLevel) return { ok: false, reason: 'maxed', upgrades, wallet };
+    const cost = upgradeCost(track, level);
+    if (wallet < cost) return { ok: false, reason: 'funds', upgrades, wallet };
+    upgrades[trackKey] = level + 1;
+    this.saveUpgrades(upgrades);
+    this.saveWallet(wallet - cost);
+    return { ok: true, upgrades, wallet: wallet - cost };
+  }
 }
 
 class Tutorial {

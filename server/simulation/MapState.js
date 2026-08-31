@@ -2,16 +2,18 @@
 // no rendering code — only grid generation and tile queries), so the server
 // and every client share identical collision geometry.
 import { MapGenerator } from '../../src/game/systems/MapGen.js';
-import { MAP_CONFIG, SPAWN_TILE_POINTS } from '../../shared/protocol.js';
+import { getMapDef, spawnTilePointsFor, DEFAULT_MAP_ID } from '../../shared/protocol.js';
 import { TILE } from '../../shared/gameConstants.js';
 
 export class MapState {
   constructor() {
     this.gen = new MapGenerator();
+    this.def = null;
   }
 
-  generate() {
-    this.gen.generate(MAP_CONFIG.COLS, MAP_CONFIG.ROWS, MAP_CONFIG.THEME);
+  generate(mapId = DEFAULT_MAP_ID) {
+    this.def = getMapDef(mapId);
+    this.gen.generate(this.def.cols, this.def.rows, this.def.theme);
     return this;
   }
 
@@ -20,14 +22,16 @@ export class MapState {
     return {
       cols: this.gen.cols,
       rows: this.gen.rows,
-      theme: MAP_CONFIG.THEME,
+      theme: this.def.theme,
+      mapId: this.def.id,
+      mapName: this.def.name,
       grid: this.gen.grid,
     };
   }
 
   // World-space spawn positions derived from tile coordinates.
   spawnPoints() {
-    return SPAWN_TILE_POINTS.map(p => ({
+    return spawnTilePointsFor(this.gen.cols, this.gen.rows).map((p) => ({
       x: p.tx * TILE + TILE / 2,
       y: p.ty * TILE + TILE / 2,
       angle: p.angle,

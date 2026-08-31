@@ -2,7 +2,7 @@ import React from 'react';
 
 export default function GameOverScreen({ result, onAgain, onMenu }) {
   if (!result) return null;
-  const { victory, stats } = result;
+  const { victory, stats, isNewBest, best, wallet } = result;
   const label = stats.mode === 'battle' ? 'Level' : 'Wave';
   return (
     <div className="screen" id="endScreen">
@@ -13,6 +13,13 @@ export default function GameOverScreen({ result, onAgain, onMenu }) {
         <div>Coins: <b>{stats.coins}</b></div>
         <div>{label}: <b>{stats.wave}</b></div>
         <div>Time: <b>{Math.floor(stats.time)}s</b></div>
+        {best && (
+          <div>
+            Best Score: <b>{best.score}</b>
+            {isNewBest && <span style={{ color: '#ffd54a', marginLeft: 6 }}>NEW BEST!</span>}
+          </div>
+        )}
+        {typeof wallet === 'number' && <div>Wallet: <b>{wallet}</b> coins</div>}
       </div>
       <div className="row">
         <button className="btn primary" onClick={onAgain}>PLAY AGAIN</button>

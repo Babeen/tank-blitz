@@ -5,6 +5,7 @@ import DifficultyScreen from './components/DifficultyScreen';
 import HowToPlayScreen from './components/HowToPlayScreen';
 import SettingsScreen from './components/SettingsScreen';
 import CreditsScreen from './components/CreditsScreen';
+import GarageScreen from './components/GarageScreen';
 import PauseScreen from './components/PauseScreen';
 import GameOverScreen from './components/GameOverScreen';
 import HUD from './components/HUD';
@@ -24,6 +25,8 @@ export default function App() {
   const [boss, setBoss] = useState(null);
   const [endResult, setEndResult] = useState(null);
   const [pendingMode, setPendingMode] = useState('battle');
+  const [wallet, setWallet] = useState(0);
+  const [upgrades, setUpgrades] = useState(null);
 
   // --- Online multiplayer (lobby only — no gameplay networking yet) ---
   const [mpConnecting, setMpConnecting] = useState(false);
@@ -31,6 +34,8 @@ export default function App() {
   const [mpRoomCode, setMpRoomCode] = useState(null);
   const [mpPlayers, setMpPlayers] = useState([]);
   const [mpYou, setMpYou] = useState(null);
+  const [mpMapId, setMpMapId] = useState(null);
+  const [mpMaps, setMpMaps] = useState([]);
   const [mpStartedInfo, setMpStartedInfo] = useState(null);
   // Tracked at the App level (not just inside MultiplayerGameCanvas) so the
   // lobby can also react to it — e.g. disabling "Start Match" while the
@@ -60,6 +65,8 @@ export default function App() {
       setMpRoomCode(data.roomCode);
       setMpPlayers(data.players);
       setMpYou(data.you);
+      if (data.mapId) setMpMapId(data.mapId);
+      if (data.maps) setMpMaps(data.maps);
       setView('lobby');
     });
     const offRoomJoined = networkManager.on('roomJoined', (data) => {
@@ -68,6 +75,8 @@ export default function App() {
       setMpRoomCode(data.roomCode);
       setMpPlayers(data.players);
       setMpYou(data.you);
+      if (data.mapId) setMpMapId(data.mapId);
+      if (data.maps) setMpMaps(data.maps);
       setView('lobby');
     });
     const offPlayerJoined = networkManager.on('playerJoined', (data) => setMpPlayers(data.players));
@@ -81,6 +90,7 @@ export default function App() {
       setMpPlayers(data.players);
       const me = networkManager.socket && data.players.find((p) => p.id === networkManager.socket.id);
       if (me) setMpYou(me);
+      if (data.mapId) setMpMapId(data.mapId);
     });
     const offGameStart = networkManager.on('gameStart', (data) => {
       setMpStartedInfo(data);
@@ -143,6 +153,14 @@ export default function App() {
   const canvasRef = useRef(null);
   const minimapRef = useRef(null);
   const toastTimer = useRef(null);
+  // Single-player HUD data arrives from the engine's update() loop, i.e. up
+  // to 60x/sec. Routing every one of those through setState would re-render
+  // the whole App tree every frame (the same reason the multiplayer path
+  // deliberately keeps its per-tick GAME_STATE out of React state — see the
+  // comment above mpMapData). We don't need HUD numbers to update faster
+  // than the eye can read them, so throttle to ~15Hz here instead.
+  const lastHudUpdate = useRef(0);
+  const HUD_UPDATE_INTERVAL_MS = 66;
 
   const onStateChange = useCallback((state, mode, data) => {
     setGameState(state);
@@ -151,7 +169,12 @@ export default function App() {
     else setView('game');
   }, []);
 
-  const onHUDUpdate = useCallback((data) => setHud(data), []);
+  const onHUDUpdate = useCallback((data) => {
+    const now = performance.now();
+    if (now - lastHudUpdate.current < HUD_UPDATE_INTERVAL_MS) return;
+    lastHudUpdate.current = now;
+    setHud(data);
+  }, []);
   const onToast = useCallback((txt) => {
     setToastMsg(txt);
     clearTimeout(toastTimer.current);
@@ -175,6 +198,16 @@ export default function App() {
   const quit = () => engineRef.current?.quit();
   const toggleSetting = (key) => { engineRef.current?.setSetting(key, !engineRef.current.getSettings()[key]); };
   const getSetting = (key) => engineRef.current?.getSettings()[key] ?? true;
+
+  const goGarage = () => {
+    const engine = engineRef.current;
+    if (engine) { setWallet(engine.loadWallet()); setUpgrades(engine.loadUpgrades()); }
+    setView('garage');
+  };
+  const purchaseUpgrade = (key) => {
+    const res = engineRef.current?.purchaseUpgrade(key);
+    if (res) { setWallet(res.wallet); setUpgrades(res.upgrades); }
+  };
 
   const goOnline = () => { setMpError(''); setView('multiplayer'); };
   const leaveMultiplayer = () => {
@@ -221,7 +254,8 @@ export default function App() {
       )}
       {view === 'game' && gameState === 'pause' && <PauseScreen onResume={resume} onRestart={restart} onQuit={quit} />}
       {view === 'game' && gameState === 'over' && <GameOverScreen result={endResult} onAgain={restart} onMenu={quit} />}
-      {view === 'menu' && <MenuScreen onPlay={() => goDiff('battle')} onSurvival={() => goDiff('survival')} on2P={() => goDiff('2player')} onOnline={goOnline} onHow={() => setView('how')} onSettings={() => setView('settings')} onCredits={() => setView('credits')} />}
+      {view === 'menu' && <MenuScreen onPlay={() => goDiff('battle')} onSurvival={() => goDiff('survival')} on2P={() => goDiff('2player')} onOnline={goOnline} onGarage={goGarage} onHow={() => setView('how')} onSettings={() => setView('settings')} onCredits={() => setView('credits')} />}
+      {view === 'garage' && <GarageScreen wallet={wallet} upgrades={upgrades} onPurchase={purchaseUpgrade} onBack={goMenu} />}
       {view === 'difficulty' && <DifficultyScreen onStart={startGame} onBack={goMenu} />}
       {view === 'how' && <HowToPlayScreen onTutorial={startTutorial} onBack={goMenu} />}
       {view === 'settings' && <SettingsScreen getSetting={getSetting} toggleSetting={toggleSetting} onBack={goMenu} />}
@@ -230,7 +264,7 @@ export default function App() {
         <MultiplayerScreen onCreateRoom={createRoom} onJoinRoom={joinRoom} onBack={leaveMultiplayer} connecting={mpConnecting} error={mpError} onRetry={retryLastAction} canRetry={!!mpLastAction} />
       )}
       {view === 'lobby' && (
-        <LobbyScreen roomCode={mpRoomCode} players={mpPlayers} you={mpYou} onStart={startMatch} onLeave={leaveLobby} error={mpError} connState={mpConnState} />
+        <LobbyScreen roomCode={mpRoomCode} players={mpPlayers} you={mpYou} onStart={startMatch} onLeave={leaveLobby} error={mpError} connState={mpConnState} maps={mpMaps} mapId={mpMapId} onSetMap={(id) => networkManager.setMap(id)} />
       )}
       {view === 'mp-game' && (
         <>

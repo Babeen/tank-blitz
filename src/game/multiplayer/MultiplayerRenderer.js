@@ -25,9 +25,11 @@ const MAX_SNAPSHOT_MS = 250;
 const MAX_INTERP_DIST = 260;
 
 export class MultiplayerRenderer {
-  constructor(canvas) {
+  constructor(canvas, minimapCanvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+    this.mmCanvas = minimapCanvas || null;
+    this.mmCtx = minimapCanvas ? minimapCanvas.getContext('2d') : null;
     this.W = 0; this.H = 0; this.dpr = 1;
     this.tanks = new Map();       // playerId -> Tank
     this.localPlayerId = null;
@@ -366,11 +368,21 @@ export class MultiplayerRenderer {
     const targetX = localTank ? localTank.x : worldW / 2;
     const targetY = localTank ? localTank.y : worldH / 2;
 
-    this.scale = Math.min(this.W / worldW, this.H / worldH) * 0.95;
-    // Clamp camera so map fills screen
+    // Fixed 1:1 zoom that scrolls to follow the local tank, mirroring the
+    // single-player camera — previously this fit the *entire* map into the
+    // viewport, which made tanks (and everything else) shrink as maps got
+    // bigger. Now the view always shows a consistent slice of the world
+    // regardless of map size, and small maps get centered (see below)
+    // rather than stretched to fill the screen.
+    this.scale = 1;
     const viewW = this.W / this.scale, viewH = this.H / this.scale;
-    const camX = Math.max(0, Math.min(targetX - viewW / 2, worldW - viewW));
-    const camY = Math.max(0, Math.min(targetY - viewH / 2, worldH - viewH));
+    // When the map is narrower/shorter than the viewport, center it instead
+    // of pinning to the top-left corner — pinning left a permanent block of
+    // empty background along the right and/or bottom edge on any window
+    // bigger than the map itself.
+    const maxCamX = worldW - viewW, maxCamY = worldH - viewH;
+    const camX = maxCamX > 0 ? Math.max(0, Math.min(targetX - viewW / 2, maxCamX)) : maxCamX / 2;
+    const camY = maxCamY > 0 ? Math.max(0, Math.min(targetY - viewH / 2, maxCamY)) : maxCamY / 2;
 
     this.offX = -camX * this.scale;
     this.offY = -camY * this.scale;
@@ -398,6 +410,7 @@ export class MultiplayerRenderer {
     ctx.restore();
 
     this._drawHUD(ctx);
+    this._drawMinimap(camX, camY, viewW, viewH);
   }
 
   // ── Map rendering (mirrors GameEngine.drawMap / drawTile) ─────────────────
@@ -526,6 +539,33 @@ export class MultiplayerRenderer {
   }
 
   // ── HUD ───────────────────────────────────────────────────────────────────
+
+  // Compact overview map (mirrors GameEngine.drawMinimap in single-player) —
+  // more important here than it ever was before, since the camera now
+  // scrolls instead of always showing the whole arena at once.
+  _drawMinimap(camX, camY, viewW, viewH) {
+    if (!this.mmCtx || !this.mapData) return;
+    const { cols, rows, grid } = this.mapData;
+    const worldW = cols * TILE, worldH = rows * TILE;
+    const mw = this.mmCanvas.width, mh = this.mmCanvas.height;
+    const mctx = this.mmCtx;
+    mctx.clearRect(0, 0, mw, mh);
+    const sx = mw / worldW, sy = mh / worldH;
+    mctx.fillStyle = '#2a2418'; mctx.fillRect(0, 0, mw, mh);
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+      const t = grid[y][x];
+      if (t === T.STEEL) { mctx.fillStyle = '#6f7888'; mctx.fillRect(x * TILE * sx, y * TILE * sy, TILE * sx, TILE * sy); }
+      else if (t === T.BRICK || t === T.CRATE) { mctx.fillStyle = '#a8542e'; mctx.fillRect(x * TILE * sx, y * TILE * sy, TILE * sx, TILE * sy); }
+      else if (t === T.WATER) { mctx.fillStyle = '#2f7fbf'; mctx.fillRect(x * TILE * sx, y * TILE * sy, TILE * sx, TILE * sy); }
+    }
+    for (const pu of this.powerups) { mctx.fillStyle = '#ffcf3f'; mctx.fillRect(pu.x * sx - 1, pu.y * sy - 1, 3, 3); }
+    for (const tank of this.tanks.values()) {
+      mctx.fillStyle = tank.team === 'player' ? '#5be36a' : '#5aa8ff';
+      mctx.beginPath(); mctx.arc(tank.x * sx, tank.y * sy, 3, 0, Math.PI * 2); mctx.fill();
+    }
+    mctx.strokeStyle = 'rgba(255,255,255,0.4)'; mctx.lineWidth = 1;
+    mctx.strokeRect(camX * sx, camY * sy, viewW * sx, viewH * sy);
+  }
 
   _drawHUD(ctx) {
     const localTank = this.getLocalTank();

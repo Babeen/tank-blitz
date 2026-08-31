@@ -63,6 +63,7 @@
   .p2 .hp-fill { background:linear-gradient(#5aa8ff,#2f7fe0); }
   #weaponChip { position:absolute; bottom:56px; right:16px; }
   #minimap { position:absolute; top:56px; right:14px; width:130px; height:96px; background:rgba(10,14,24,.85); border:2px solid rgba(120,150,200,.35); border-radius:10px; }
+  #mp-minimap { position:absolute; top:56px; right:14px; width:130px; height:96px; background:rgba(10,14,24,.85); border:2px solid rgba(120,150,200,.35); border-radius:10px; z-index:21; }
   #powerbar { position:absolute; bottom:60px; left:50%; transform:translateX(-50%); display:flex; gap:8px; flex-wrap:wrap; justify-content:center; max-width:60vw; }
   .pchip { background:rgba(20,26,42,.85); border:2px solid rgba(120,150,200,.3); border-radius:10px; padding:5px 9px; color:#fff; font-size:13px; font-weight:700; display:flex; align-items:center; gap:5px; }
   #toast { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%); z-index:15; color:#fff; font-size:clamp(28px,6vw,60px); font-weight:900; text-shadow:0 4px 14px #000; opacity:0; pointer-events:none; transition:opacity .3s, transform .3s; text-align:center; }
