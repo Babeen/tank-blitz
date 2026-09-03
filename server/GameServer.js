@@ -3,7 +3,7 @@ import { GameRoom } from './GameRoom.js';
 import { GameSimulation } from './simulation/GameSimulation.js';
 import { RateLimiter } from './RateLimiter.js';
 import { logger } from './logger.js';
-import { EVENTS, ROOM_RULES, MATCH_STATES, MATCH_RULES, MAPS } from '../shared/protocol.js';
+import { EVENTS, ROOM_RULES, MATCH_STATES, MATCH_RULES, MAPS, GAME_MODES, getModeDef } from '../shared/protocol.js';
 
 const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function randomRoomCode(length) {
@@ -50,6 +50,7 @@ export class GameServer {
       createRoom:     new RateLimiter(5, 10_000),
       joinRoom:       new RateLimiter(10, 10_000),
       setMap:         new RateLimiter(10, 5_000),
+      setMode:        new RateLimiter(10, 5_000),
       startMatch:     new RateLimiter(5, 5_000),
       rematch:        new RateLimiter(10, 5_000),
       returnToLobby:  new RateLimiter(5, 5_000),
@@ -131,6 +132,7 @@ export class GameServer {
     socket.on(EVENTS.CLIENT.JOIN_ROOM,    this._safe(socket, 'join_room', (p) => this.handleJoinRoom(socket, p)));
     socket.on(EVENTS.CLIENT.LEAVE_ROOM,   this._safe(socket, 'leave_room', () => this.handleLeaveRoom(socket)));
     socket.on(EVENTS.CLIENT.SET_MAP,      this._safe(socket, 'set_map', (p) => this.handleSetMap(socket, p)));
+    socket.on(EVENTS.CLIENT.SET_MODE,     this._safe(socket, 'set_mode', (p) => this.handleSetMode(socket, p)));
     socket.on(EVENTS.CLIENT.START_MATCH,  this._safe(socket, 'start_match', () => this.handleStartMatch(socket)));
     socket.on(EVENTS.CLIENT.PLAYER_INPUT, this._safe(socket, 'player_input', (input) => this.handlePlayerInput(socket, input)));
     socket.on(EVENTS.CLIENT.REJOIN_ROOM,  this._safe(socket, 'rejoin_room', (p) => this.handleRejoin(socket, p)));
@@ -164,7 +166,7 @@ export class GameServer {
     socket.data.roomCode = code;
     const token = this._generateToken();
     this._reconnectTokens.set(token, { roomCode: code, playerId: socket.id, name: player.name, expiresAt: Date.now() + RECONNECT_TOKEN_TTL_MS });
-    socket.emit(EVENTS.SERVER.ROOM_CREATED, { roomCode: code, players: room.getPlayers(), you: player, reconnectToken: token, mapId: room.getMapId(), maps: MAPS });
+    socket.emit(EVENTS.SERVER.ROOM_CREATED, { roomCode: code, players: room.getPlayers(), you: player, reconnectToken: token, mapId: room.getMapId(), maps: MAPS, modeId: room.getModeId(), modes: GAME_MODES });
     logger.info(`Room created: ${code} (host ${socket.id})`);
   }
 
@@ -186,7 +188,7 @@ export class GameServer {
     socket.data.roomCode = code;
     const token = this._generateToken();
     this._reconnectTokens.set(token, { roomCode: code, playerId: socket.id, name: player.name, expiresAt: Date.now() + RECONNECT_TOKEN_TTL_MS });
-    socket.emit(EVENTS.SERVER.ROOM_JOINED, { roomCode: code, players: room.getPlayers(), you: player, reconnectToken: token, mapId: room.getMapId(), maps: MAPS });
+    socket.emit(EVENTS.SERVER.ROOM_JOINED, { roomCode: code, players: room.getPlayers(), you: player, reconnectToken: token, mapId: room.getMapId(), maps: MAPS, modeId: room.getModeId(), modes: GAME_MODES });
     socket.to(code).emit(EVENTS.SERVER.PLAYER_JOINED, { player, players: room.getPlayers() });
     this.io.to(code).emit(EVENTS.SERVER.ROOM_UPDATED, { players: room.getPlayers() });
     logger.info(`Player joined room ${code}: ${socket.id}`);
@@ -343,6 +345,21 @@ export class GameServer {
     this.io.to(code).emit(EVENTS.SERVER.ROOM_UPDATED, { players: room.getPlayers(), mapId: room.getMapId() });
   }
 
+  handleSetMode(socket, payload) {
+    if (this._rateLimited(socket, this._limiters.setMode, 'set_mode')) return;
+
+    const code = socket.data.roomCode;
+    const room = code ? this.rooms.get(code) : null;
+    if (!room)                              { socket.emit(EVENTS.SERVER.SERVER_ERROR, { message: 'You are not in a room.' }); return; }
+    if (!room.isHost(socket.id))            { socket.emit(EVENTS.SERVER.SERVER_ERROR, { message: 'Only the host can change the mode.' }); return; }
+    if (room.matchState !== MATCH_STATES.LOBBY) { socket.emit(EVENTS.SERVER.SERVER_ERROR, { message: 'Cannot change the mode once a match has started.' }); return; }
+
+    const modeId = payload && typeof payload.modeId === 'string' ? payload.modeId : '';
+    if (!room.setMode(modeId)) { socket.emit(EVENTS.SERVER.SERVER_ERROR, { message: 'Unknown mode.' }); return; }
+
+    this.io.to(code).emit(EVENTS.SERVER.ROOM_UPDATED, { players: room.getPlayers(), modeId: room.getModeId() });
+  }
+
   // ── Match start / countdown / active (Parts 4-7) ────────────────────────────
 
   handleStartMatch(socket) {
@@ -364,10 +381,12 @@ export class GameServer {
   }
 
   _createSimulation(room, code) {
+    const mode = getModeDef(room.getModeId());
     return new GameSimulation(room, {
       tickRate: 30,
-      killsToWin: MATCH_RULES.KILLS_TO_WIN,
+      killsToWin: mode.teams ? MATCH_RULES.TEAM_KILLS_TO_WIN : MATCH_RULES.KILLS_TO_WIN,
       mapId: room.getMapId(),
+      teams: mode.teams,
       onTick: (state) => maybeDelay(() => this.io.to(code).emit(EVENTS.SERVER.GAME_STATE, state)),
       onEvent: (type, data) => maybeDelay(() => this.io.to(code).emit(EVENTS.SERVER.GAME_EVENT, { type, ...data })),
       onMatchEnd: (reason) => this.endMatch(code, reason),
@@ -380,7 +399,7 @@ export class GameServer {
     room.countdown = MATCH_RULES.COUNTDOWN_SECONDS;
 
     const mapData = simulation.getMapData();
-    this.io.to(code).emit(EVENTS.SERVER.GAME_START, { roomId: code, players: room.getPlayers(), mapData });
+    this.io.to(code).emit(EVENTS.SERVER.GAME_START, { roomId: code, players: room.getPlayers(), mapData, modeId: room.getModeId() });
     this.io.to(code).emit(EVENTS.SERVER.GAME_STATE, simulation._buildState());
     this.io.to(code).emit(EVENTS.SERVER.MATCH_STATE, this._matchStatePayload(room));
 
@@ -441,22 +460,41 @@ export class GameServer {
     simulation?.stop();
     room.rematchReady = new Set();
 
-    const { winnerId, winnerName, winReason, standings } = this._computeResults(room, reason);
-    room.winnerId = winnerId;
-    room.winnerName = winnerName;
-    room.winReason = winReason;
+    const results = this._computeResults(room, reason);
+    room.winnerId = results.winnerId;
+    room.winnerName = results.winnerName;
+    room.winReason = results.winReason;
+    room.winnerTeam = results.winnerTeam || null;
+    room.teamScores = results.teamScores || null;
 
     this.io.to(code).emit(EVENTS.SERVER.MATCH_STATE, this._matchStatePayload(room));
-    this.io.to(code).emit(EVENTS.SERVER.MATCH_ENDED, this._matchEndedPayload(room, standings));
-    logger.info(`Match ended: room ${code} (reason: ${winReason}, winner: ${winnerName || 'none'})`);
+    this.io.to(code).emit(EVENTS.SERVER.MATCH_ENDED, this._matchEndedPayload(room, results.standings));
+    logger.info(`Match ended: room ${code} (reason: ${room.winReason}, winner: ${room.winnerName || 'none'})`);
   }
 
   _computeResults(room, reason) {
     const players = Array.from(room.gameState.players.values());
     const sorted = [...players].sort((a, b) => (b.kills || 0) - (a.kills || 0) || (a.deaths || 0) - (b.deaths || 0));
     const standings = sorted.map((p, i) => ({
-      playerId: p.id, name: p.name, kills: p.kills || 0, deaths: p.deaths || 0, rank: i + 1,
+      playerId: p.id, name: p.name, kills: p.kills || 0, deaths: p.deaths || 0, rank: i + 1, team: p.team || null,
     }));
+
+    // Team Deathmatch: the winner is a team (by combined kills), not
+    // necessarily whoever has the highest individual kill count.
+    if (getModeDef(room.getModeId()).teams) {
+      const teamScores = { red: 0, blue: 0 };
+      for (const p of players) if (p.team) teamScores[p.team] = (teamScores[p.team] || 0) + (p.kills || 0);
+      let winnerTeam = null;
+      if (teamScores.red !== teamScores.blue) winnerTeam = teamScores.red > teamScores.blue ? 'red' : 'blue';
+      return {
+        winnerId: null,
+        winnerName: winnerTeam ? (winnerTeam === 'red' ? 'RED TEAM' : 'BLUE TEAM') : null,
+        winnerTeam,
+        teamScores,
+        winReason: winnerTeam ? reason : 'draw',
+        standings,
+      };
+    }
 
     if (sorted.length === 0) return { winnerId: null, winnerName: null, winReason: 'draw', standings };
 
@@ -474,6 +512,8 @@ export class GameServer {
     return {
       winnerId: room.winnerId,
       winnerName: room.winnerName,
+      winnerTeam: room.winnerTeam || null,
+      teamScores: room.teamScores || null,
       reason: room.winReason,
       standings,
     };

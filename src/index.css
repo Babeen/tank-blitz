@@ -77,6 +77,22 @@
   .stats b { color:#ffd54a; }
   @media (max-width:640px){ .btn{min-width:180px;} }
 
+  /* Touch controls — see src/components/TouchControls.jsx. Positioned with
+     deliberate clearance above #healthWrap (bottom:16px, ~40px tall, so its
+     top edge sits around bottom:56px) and to the side of #weaponChip
+     (bottom:56px right:16px) — the old dead touch CSS this replaced had
+     the joystick overlapping the health bar directly. */
+  .touch-joystick { position:absolute; bottom:82px; left:22px; width:120px; height:120px; border-radius:50%;
+    background:rgba(255,255,255,.08); border:3px solid rgba(255,255,255,.22); }
+  .touch-knob { position:absolute; width:52px; height:52px; border-radius:50%; left:34px; top:34px;
+    background:rgba(255,255,255,.32); border:2px solid rgba(255,255,255,.5); transition:transform .05s linear; }
+  .touch-btn { position:absolute; border-radius:50%; border:3px solid rgba(255,255,255,.28);
+    color:#fff; font-weight:800; font-size:13px; letter-spacing:1px; display:flex; align-items:center; justify-content:center; }
+  .touch-btn-fire { bottom:96px; right:26px; width:92px; height:92px; background:rgba(255,90,90,.28); }
+  .touch-btn-fire:active { background:rgba(255,90,90,.5); }
+  .touch-btn-dash { bottom:206px; right:52px; width:64px; height:64px; background:rgba(90,168,255,.28); }
+  .touch-btn-dash:active { background:rgba(90,168,255,.5); }
+
 #root, #wrap { width: 100vw; height: 100vh; overflow: hidden; position: relative; }
 #toast { transition: opacity .3s, transform .3s; }
 #toast.show { opacity: 1 !important; transform: translate(-50%,-50%) scale(1.05) !important; pointer-events: none; }

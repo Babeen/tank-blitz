@@ -1,23 +1,26 @@
 import React from 'react';
+import Screen from './Screen';
 
-export default function LobbyScreen({ roomCode, players, you, onStart, onLeave, error, connState, maps, mapId, onSetMap }) {
+export default function LobbyScreen({ roomCode, players, you, onStart, onLeave, error, connState, maps, mapId, onSetMap, modes, modeId, onSetMode }) {
   // Part 26 — never allow starting a match while the connection is
   // unavailable; the host would just get a silently-dropped request.
   const connOk = connState === 'connected';
   const canStart = !!you?.isHost && players.length >= 2 && connOk;
   const selectedMap = maps?.find((m) => m.id === mapId);
+  const selectedMode = modes?.find((m) => m.id === modeId);
+  const teamsUnbalanced = !!selectedMode?.teams && players.length % 2 !== 0;
 
   return (
-    <div className="screen" id="lobbyScreen">
+    <Screen id="lobbyScreen">
       <div className="title" style={{ fontSize: 'clamp(28px,6vw,54px)' }}>LOBBY</div>
 
       <div className="panel">
         <h2>ROOM CODE: {roomCode}</h2>
         <p style={{ marginBottom: 10 }}>PLAYERS {players.length}/4</p>
         <ul style={{ listStyle: 'none', marginLeft: 0 }}>
-          {players.map((p) => (
+          {players.map((p, i) => (
             <li key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
-              <span style={{ color: '#4bd07a' }}>●</span>
+              <span style={{ color: selectedMode?.teams ? (i % 2 === 0 ? '#ff5a5a' : '#5aa8ff') : '#4bd07a' }}>●</span>
               <span>{p.name}</span>
               {p.isHost && <span style={{ color: '#ffd54a', fontSize: 12 }}>&nbsp;(HOST)</span>}
               {p.id === you?.id && <span style={{ color: '#9fb3d1', fontSize: 12 }}>&nbsp;(YOU)</span>}
@@ -25,6 +28,30 @@ export default function LobbyScreen({ roomCode, players, you, onStart, onLeave, 
           ))}
         </ul>
       </div>
+
+      {modes && modes.length > 0 && (
+        <div className="panel">
+          <p style={{ marginBottom: 10 }}>MODE</p>
+          {you?.isHost ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+              {modes.map((m) => (
+                <button
+                  key={m.id}
+                  className={m.id === modeId ? 'btn small primary' : 'btn small'}
+                  onClick={() => onSetMode?.(m.id)}
+                  disabled={!connOk}
+                >
+                  {m.name}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="diff-desc">{selectedMode ? selectedMode.name : 'Waiting for host…'}</div>
+          )}
+          {selectedMode?.desc && <div className="diff-desc" style={{ marginTop: 8 }}>{selectedMode.desc}</div>}
+          {teamsUnbalanced && <div className="diff-desc" style={{ color: '#ffcf3f' }}>Uneven player count — teams won't be balanced.</div>}
+        </div>
+      )}
 
       {maps && maps.length > 0 && (
         <div className="panel">
@@ -59,6 +86,6 @@ export default function LobbyScreen({ roomCode, players, you, onStart, onLeave, 
       )}
 
       <button className="btn small red" onClick={onLeave}>LEAVE ROOM</button>
-    </div>
+    </Screen>
   );
 }

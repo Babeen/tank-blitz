@@ -29,7 +29,7 @@ export class GameSimulation {
    * @param {import('../GameRoom.js').GameRoom} room
    * @param {{ tickRate?: number, onTick?: Function, onEvent?: Function }} opts
    */
-  constructor(room, { tickRate = 30, onTick = () => {}, onEvent = () => {}, onMatchEnd = () => {}, onError = () => {}, killsToWin = null, mapId = undefined } = {}) {
+  constructor(room, { tickRate = 30, onTick = () => {}, onEvent = () => {}, onMatchEnd = () => {}, onError = () => {}, killsToWin = null, mapId = undefined, teams = false } = {}) {
     this.room = room;
     this.tickRate = tickRate;
     this.onTick = onTick;
@@ -42,6 +42,10 @@ export class GameSimulation {
     // bad tick can't take down the room, let alone the whole process.
     this.onError = onError;
     this.killsToWin = killsToWin;
+    // Team Deathmatch: friendly fire off, win condition is combined team
+    // kills rather than one player's. See _hitPlayer's caller, _rocketExplode,
+    // and _checkKillWin below.
+    this.teams = teams;
     this._matchEndFired = false;
 
     // Per-player input (set by GameServer on PLAYER_INPUT)
@@ -340,15 +344,18 @@ export class GameSimulation {
       if (b.dead) continue;
 
       // Bullet vs player collision
+      const owner = players.get(b.ownerId);
       for (const player of players.values()) {
         if (!player.alive || player.spawning > 0) continue;
         if (player.id === b.ownerId) continue;
+        // Team Deathmatch: bullets pass through teammates instead of
+        // colliding — no friendly fire.
+        if (this.teams && owner && player.team && player.team === owner.team) continue;
         if (dist(b.x, b.y, player.x, player.y) < player.radius + b.radius) {
           this._hitPlayer(player, b.damage, players);
           if (b.explosive) this._rocketExplode(b.x, b.y, b.ownerId, players);
           b.dead = true;
           // Credit kill to owner
-          const owner = players.get(b.ownerId);
           if (owner && !player.alive) {
             owner.kills = (owner.kills || 0) + 1;
             this._checkKillWin(owner);
@@ -387,8 +394,11 @@ export class GameSimulation {
   _rocketExplode(x, y, ownerId, players) {
     const R = 70;
     this.onEvent(GAME_EVENTS.BARREL_EXPLODED, { x, y, radius: R });
+    const owner = players.get(ownerId);
     for (const player of players.values()) {
       if (!player.alive || player.id === ownerId) continue;
+      // No friendly-fire splash damage in Team Deathmatch either.
+      if (this.teams && owner && player.team && player.team === owner.team) continue;
       const d = dist(x, y, player.x, player.y);
       if (d < R) this._hitPlayer(player, 40 * (1 - d / R), players);
     }
@@ -420,7 +430,18 @@ export class GameSimulation {
 
   _checkKillWin(owner) {
     if (this._matchEndFired) return;
-    if (this.killsToWin && owner.kills >= this.killsToWin) {
+    if (!this.killsToWin) return;
+    if (this.teams && owner.team) {
+      // Team Deathmatch: win target is the combined kill count of every
+      // player on the scoring player's team, not their individual total.
+      let teamKills = 0;
+      for (const p of this.room.gameState.players.values()) {
+        if (p.team === owner.team) teamKills += p.kills || 0;
+      }
+      if (teamKills >= this.killsToWin) { this._matchEndFired = true; this.onMatchEnd('kills'); }
+      return;
+    }
+    if (owner.kills >= this.killsToWin) {
       this._matchEndFired = true;
       this.onMatchEnd('kills');
     }
@@ -441,9 +462,18 @@ export class GameSimulation {
       player.ammo = { cannon: Infinity };
       player.rapidFire = 0; player.tripleShot = 0; player.speedBoost = 0;
       player.dashCd = 0; player.dashTime = 0; player.fireCd = 0;
-      // Pick a spawn corner away from enemies
+      // Pick a spawn corner. In Team Deathmatch, respawn on the player's
+      // own side (see GameRoom.buildGameState for the same north/south
+      // pairing) instead of any of the 4 corners — respawning behind
+      // enemy lines would be a rough way to lose your dash cooldown.
       const spawns = this.map.spawnPoints();
-      const spawn = choose(spawns);
+      let pool = spawns;
+      if (this.teams && player.team) {
+        const teamSpawns = player.team === 'red' ? [spawns[0], spawns[2]] : [spawns[1], spawns[3]];
+        const filtered = teamSpawns.filter(Boolean);
+        if (filtered.length) pool = filtered;
+      }
+      const spawn = choose(pool);
       player.x = spawn.x; player.y = spawn.y; player.angle = spawn.angle; player.turretAngle = spawn.angle;
       const kin = this.kinematics.get(player.id);
       if (kin) { kin.speed = 0; kin.vx = 0; kin.vy = 0; }
@@ -528,6 +558,7 @@ export class GameSimulation {
         return {
           id: p.id,
           name: p.name,
+          team: p.team || null,
           x: p.x, y: p.y,
           angle: p.angle,
           turretAngle: p.turretAngle,

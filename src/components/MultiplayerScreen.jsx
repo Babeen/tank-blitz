@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import Screen from './Screen';
 
 export default function MultiplayerScreen({ onCreateRoom, onJoinRoom, onBack, connecting, error, onRetry, canRetry }) {
   const [joining, setJoining] = useState(false);
@@ -11,7 +12,7 @@ export default function MultiplayerScreen({ onCreateRoom, onJoinRoom, onBack, co
   };
 
   return (
-    <div className="screen" id="multiplayerScreen">
+    <Screen id="multiplayerScreen">
       <div className="title" style={{ fontSize: 'clamp(28px,6vw,54px)' }}>ONLINE MULTIPLAYER</div>
 
       {!joining ? (
@@ -48,6 +49,6 @@ export default function MultiplayerScreen({ onCreateRoom, onJoinRoom, onBack, co
           )}
         </>
       )}
-    </div>
+    </Screen>
   );
 }

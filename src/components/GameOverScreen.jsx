@@ -1,11 +1,12 @@
 import React from 'react';
+import Screen from './Screen';
 
 export default function GameOverScreen({ result, onAgain, onMenu }) {
   if (!result) return null;
   const { victory, stats, isNewBest, best, wallet } = result;
   const label = stats.mode === 'battle' ? 'Level' : 'Wave';
   return (
-    <div className="screen" id="endScreen">
+    <Screen id="endScreen">
       <div className="title" style={{ color: victory ? '#ffd54a' : '#ff6b6b' }}>{victory ? 'VICTORY!' : 'GAME OVER'}</div>
       <div className="stats">
         <div>Kills: <b>{stats.kills}</b></div>
@@ -25,6 +26,6 @@ export default function GameOverScreen({ result, onAgain, onMenu }) {
         <button className="btn primary" onClick={onAgain}>PLAY AGAIN</button>
         <button className="btn" onClick={onMenu}>MENU</button>
       </div>
-    </div>
+    </Screen>
   );
 }

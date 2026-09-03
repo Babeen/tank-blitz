@@ -184,6 +184,7 @@ export class NetworkManager {
   joinRoom(code)     { this.socket?.emit(EVENTS.CLIENT.JOIN_ROOM, { roomCode: code }); }
   leaveRoom()        { this.socket?.emit(EVENTS.CLIENT.LEAVE_ROOM); this.roomCode = null; this.you = null; this.players = []; this._reconnectToken = null; }
   setMap(mapId)      { this.socket?.emit(EVENTS.CLIENT.SET_MAP, { mapId }); }
+  setMode(modeId)    { this.socket?.emit(EVENTS.CLIENT.SET_MODE, { modeId }); }
   startMatch()       { this.socket?.emit(EVENTS.CLIENT.START_MATCH); }
   requestRematch()   { this.socket?.emit(EVENTS.CLIENT.REMATCH_REQUEST); }
   requestReturnToLobby() { this.socket?.emit(EVENTS.CLIENT.RETURN_TO_LOBBY_REQUEST); }

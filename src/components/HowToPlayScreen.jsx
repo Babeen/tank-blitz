@@ -1,8 +1,9 @@
 import React from 'react';
+import Screen from './Screen';
 
 export default function HowToPlayScreen({ onTutorial, onBack }) {
   return (
-    <div className="screen" id="howScreen">
+    <Screen id="howScreen">
       <div className="panel">
         <h2>HOW TO PLAY</h2>
         <p><b>Player 1:</b> WASD move · Mouse aim · Left Click shoot · Space dash</p>
@@ -19,6 +20,6 @@ export default function HowToPlayScreen({ onTutorial, onBack }) {
         <button className="btn primary" onClick={onTutorial}>INTERACTIVE TUTORIAL</button>
         <button className="btn small" onClick={onBack}>BACK</button>
       </div>
-    </div>
+    </Screen>
   );
 }

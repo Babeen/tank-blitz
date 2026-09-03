@@ -36,6 +36,8 @@ export default function App() {
   const [mpYou, setMpYou] = useState(null);
   const [mpMapId, setMpMapId] = useState(null);
   const [mpMaps, setMpMaps] = useState([]);
+  const [mpModeId, setMpModeId] = useState(null);
+  const [mpModes, setMpModes] = useState([]);
   const [mpStartedInfo, setMpStartedInfo] = useState(null);
   // Tracked at the App level (not just inside MultiplayerGameCanvas) so the
   // lobby can also react to it — e.g. disabling "Start Match" while the
@@ -67,6 +69,8 @@ export default function App() {
       setMpYou(data.you);
       if (data.mapId) setMpMapId(data.mapId);
       if (data.maps) setMpMaps(data.maps);
+      if (data.modeId) setMpModeId(data.modeId);
+      if (data.modes) setMpModes(data.modes);
       setView('lobby');
     });
     const offRoomJoined = networkManager.on('roomJoined', (data) => {
@@ -77,6 +81,8 @@ export default function App() {
       setMpYou(data.you);
       if (data.mapId) setMpMapId(data.mapId);
       if (data.maps) setMpMaps(data.maps);
+      if (data.modeId) setMpModeId(data.modeId);
+      if (data.modes) setMpModes(data.modes);
       setView('lobby');
     });
     const offPlayerJoined = networkManager.on('playerJoined', (data) => setMpPlayers(data.players));
@@ -91,6 +97,7 @@ export default function App() {
       const me = networkManager.socket && data.players.find((p) => p.id === networkManager.socket.id);
       if (me) setMpYou(me);
       if (data.mapId) setMpMapId(data.mapId);
+      if (data.modeId) setMpModeId(data.modeId);
     });
     const offGameStart = networkManager.on('gameStart', (data) => {
       setMpStartedInfo(data);
@@ -264,7 +271,7 @@ export default function App() {
         <MultiplayerScreen onCreateRoom={createRoom} onJoinRoom={joinRoom} onBack={leaveMultiplayer} connecting={mpConnecting} error={mpError} onRetry={retryLastAction} canRetry={!!mpLastAction} />
       )}
       {view === 'lobby' && (
-        <LobbyScreen roomCode={mpRoomCode} players={mpPlayers} you={mpYou} onStart={startMatch} onLeave={leaveLobby} error={mpError} connState={mpConnState} maps={mpMaps} mapId={mpMapId} onSetMap={(id) => networkManager.setMap(id)} />
+        <LobbyScreen roomCode={mpRoomCode} players={mpPlayers} you={mpYou} onStart={startMatch} onLeave={leaveLobby} error={mpError} connState={mpConnState} maps={mpMaps} mapId={mpMapId} onSetMap={(id) => networkManager.setMap(id)} modes={mpModes} modeId={mpModeId} onSetMode={(id) => networkManager.setMode(id)} />
       )}
       {view === 'mp-game' && (
         <>
@@ -272,6 +279,7 @@ export default function App() {
             localPlayerId={mpYou?.id ?? null}
             mapData={mpMapData}
             matchActive={mpMatchState === 'active'}
+            showTouch={mpMatchState !== 'ended'}
           />
           <div id="mpGameOverlay" style={{ position: 'absolute', top: 14, left: 14, zIndex: 21, color: '#fff', display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ background: 'rgba(10,14,24,.7)', border: '1px solid rgba(120,150,200,.35)', borderRadius: 8, padding: '6px 12px', fontWeight: 700 }}>

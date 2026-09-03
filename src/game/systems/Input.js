@@ -36,13 +36,23 @@ export class InputManager {
    * Normalized movement-intent snapshot for online multiplayer, read-only —
    * it never touches tank state directly. Reuses the same WASD/arrow keys
    * already bound above, so it doesn't add or change any keyboard bindings.
+   * On touch devices, thresholds the analog joystick (touch.mx/my, each
+   * roughly -1..1) into the same up/down/left/right shape — multiplayer's
+   * movement model is digital either way, so this is the only conversion
+   * touch input needs on this side.
    */
   getMovementInput() {
-    return {
-      up: this.key('KeyW') || this.key('ArrowUp'),
-      down: this.key('KeyS') || this.key('ArrowDown'),
-      left: this.key('KeyA') || this.key('ArrowLeft'),
-      right: this.key('KeyD') || this.key('ArrowRight'),
-    };
+    let up = this.key('KeyW') || this.key('ArrowUp');
+    let down = this.key('KeyS') || this.key('ArrowDown');
+    let left = this.key('KeyA') || this.key('ArrowLeft');
+    let right = this.key('KeyD') || this.key('ArrowRight');
+    if (this.isTouch()) {
+      const dz = 0.25; // deadzone — ignore small accidental drift near center
+      if (this.touch.my < -dz) up = true;
+      if (this.touch.my > dz) down = true;
+      if (this.touch.mx < -dz) left = true;
+      if (this.touch.mx > dz) right = true;
+    }
+    return { up, down, left, right };
   }
 }

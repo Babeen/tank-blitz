@@ -1,5 +1,6 @@
 import { TILE, T, THEMES, WEAPONS, ENEMY_TYPES, PU_TYPES, DIFF, LEVELS } from '../constants/index.js';
 import { UPGRADE_TRACKS, UPGRADE_DEFAULTS, upgradeCost } from '../constants/upgrades.js';
+import { isTouchDevice } from '../utils/touchDevice.js';
 import { Utils } from '../utils/index.js';
 import { AudioManager } from '../systems/Audio.js';
 import { InputManager } from '../systems/Input.js';
@@ -36,6 +37,12 @@ export class GameEngine {
     this.resize();
     window.addEventListener('resize', () => this.resize());
     this.input.init(this.canvas);
+    // Nothing previously called this — the on-screen joystick markup and
+    // InputManager's touch-reading code both existed, but were never
+    // connected, so isTouch() was always false and the game only ever
+    // responded to keyboard/mouse. See TouchControls.jsx for the other
+    // half of this wiring.
+    if (isTouchDevice()) this.input.setTouch(true);
     requestAnimationFrame(this._boundLoop);
   }
 

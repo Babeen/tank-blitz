@@ -7,6 +7,7 @@ export const EVENTS = {
     JOIN_ROOM: 'join_room',
     LEAVE_ROOM: 'leave_room',
     SET_MAP: 'set_map',
+    SET_MODE: 'set_mode',
     START_MATCH: 'start_match',
     PLAYER_INPUT: 'player_input',
     REJOIN_ROOM: 'rejoin_room',
@@ -49,6 +50,9 @@ export const MATCH_RULES = {
   COUNTDOWN_SECONDS: 5,
   MATCH_DURATION_SECONDS: 180,
   KILLS_TO_WIN: 10,
+  // Team Deathmatch targets combined team kills, not one player's — a
+  // higher target keeps 2v2 matches from ending in under a minute.
+  TEAM_KILLS_TO_WIN: 20,
 };
 
 // One-time gameplay events for client-side visual/audio feedback.
@@ -107,6 +111,20 @@ export function spawnTilePointsFor(cols, rows) {
     { tx: cols - 3,  ty: 2,         angle: Math.PI },
     { tx: 2,         ty: rows - 3,  angle: 0 },
   ];
+}
+
+// Selectable multiplayer game modes — same lobby pattern as MAPS above.
+// 'teams' drives friendly fire, team-based spawns/scoring, and client
+// tank coloring (see GameSimulation.js / MultiplayerRenderer.js).
+export const GAME_MODES = [
+  { id: 'ffa', name: 'Free-For-All',    teams: false, desc: 'Every tank for itself. First to the kill target wins.' },
+  { id: 'tdm', name: 'Team Deathmatch', teams: true,  desc: 'Red vs Blue. First team to the combined kill target wins.' },
+];
+
+export const DEFAULT_MODE_ID = 'ffa';
+
+export function getModeDef(modeId) {
+  return GAME_MODES.find((m) => m.id === modeId) || GAME_MODES.find((m) => m.id === DEFAULT_MODE_ID);
 }
 
 export const PLAYER_DEFAULTS = {

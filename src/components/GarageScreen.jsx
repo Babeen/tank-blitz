@@ -1,9 +1,10 @@
 import React from 'react';
 import { UPGRADE_TRACKS, upgradeCost } from '../game/constants/upgrades.js';
+import Screen from './Screen';
 
 export default function GarageScreen({ wallet, upgrades, onPurchase, onBack }) {
   return (
-    <div className="screen" id="garageScreen">
+    <Screen id="garageScreen">
       <div className="title" style={{ fontSize: 'clamp(28px,6vw,54px)' }}>GARAGE</div>
       <p style={{ marginBottom: 14 }}>Wallet: <b>{wallet}</b> coins</p>
       <p className="diff-desc" style={{ marginBottom: 14 }}>
@@ -43,6 +44,6 @@ export default function GarageScreen({ wallet, upgrades, onPurchase, onBack }) {
       </div>
 
       <button className="btn" style={{ marginTop: 16 }} onClick={onBack}>BACK</button>
-    </div>
+    </Screen>
   );
 }

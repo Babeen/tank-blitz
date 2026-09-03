@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { MultiplayerRenderer } from '../game/multiplayer/MultiplayerRenderer.js';
 import { MultiplayerInputController } from '../game/multiplayer/MultiplayerInputController.js';
 import { networkManager } from '../network/NetworkManager.js';
+import TouchControls from './TouchControls';
+import { isTouchDevice } from '../game/utils/touchDevice.js';
 
 // Small, unobtrusive multiplayer connection indicator. Follows the same
 // dark rounded-pill visual language as the room banner in App.jsx.
@@ -41,7 +43,7 @@ function ConnectionBadge({ connState, ping }) {
   );
 }
 
-export default function MultiplayerGameCanvas({ localPlayerId, mapData, matchActive }) {
+export default function MultiplayerGameCanvas({ localPlayerId, mapData, matchActive, showTouch }) {
   const canvasRef     = useRef(null);
   const minimapRef    = useRef(null);
   const rendererRef   = useRef(null);
@@ -122,6 +124,7 @@ export default function MultiplayerGameCanvas({ localPlayerId, mapData, matchAct
       <div style={{ position: 'absolute', top: 14, right: 14, zIndex: 21 }}>
         <ConnectionBadge connState={connState} ping={ping} />
       </div>
+      {showTouch && isTouchDevice() && <TouchControls />}
     </>
   );
 }

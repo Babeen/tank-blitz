@@ -1,4 +1,4 @@
-import { ROOM_RULES, PLAYER_DEFAULTS, MATCH_STATES, MAPS, DEFAULT_MAP_ID } from '../shared/protocol.js';
+import { ROOM_RULES, PLAYER_DEFAULTS, MATCH_STATES, MAPS, DEFAULT_MAP_ID, GAME_MODES, DEFAULT_MODE_ID, getModeDef } from '../shared/protocol.js';
 import { PLAYER } from '../shared/gameConstants.js';
 
 export class GameRoom {
@@ -13,6 +13,8 @@ export class GameRoom {
     // the lobby — and defaults to the original map so anyone who doesn't
     // touch the picker gets the same match they always got.
     this.selectedMapId = DEFAULT_MAP_ID;
+    // Same sticky-default pattern for the match mode (FFA vs Team Deathmatch).
+    this.selectedModeId = DEFAULT_MODE_ID;
 
     // ── Match lifecycle state (server-authoritative) ──────────────────────
     this.matchState = MATCH_STATES.LOBBY;
@@ -22,6 +24,9 @@ export class GameRoom {
     this.winnerId = null;
     this.winnerName = null;
     this.winReason = null;
+    // Team-mode result fields — null/unused outside Team Deathmatch.
+    this.winnerTeam = null;
+    this.teamScores = null;
 
     // Players (by socket id) who have confirmed they want a rematch since
     // the last match ended. Cleared whenever a match starts or ends.
@@ -65,6 +70,14 @@ export class GameRoom {
   }
   getMapId() { return this.selectedMapId; }
 
+  /** Returns true if `modeId` is valid and was applied. */
+  setMode(modeId) {
+    if (!GAME_MODES.some((m) => m.id === modeId)) return false;
+    this.selectedModeId = modeId;
+    return true;
+  }
+  getModeId() { return this.selectedModeId; }
+
   // ── Match lifecycle helpers ────────────────────────────────────────────
 
   clearTimers() {
@@ -83,6 +96,8 @@ export class GameRoom {
     this.winnerId = null;
     this.winnerName = null;
     this.winReason = null;
+    this.winnerTeam = null;
+    this.teamScores = null;
     this.rematchReady = new Set();
     this.buildGameState(spawnPoints);
   }
@@ -98,6 +113,8 @@ export class GameRoom {
     this.winnerId = null;
     this.winnerName = null;
     this.winReason = null;
+    this.winnerTeam = null;
+    this.teamScores = null;
     this.rematchReady = new Set();
   }
 
@@ -107,13 +124,31 @@ export class GameRoom {
   }
 
   buildGameState(spawnPoints) {
+    const teamsEnabled = getModeDef(this.selectedModeId).teams;
     const lobbyPlayers = this.getPlayers();
     this.gameState.players = new Map();
+    // North/south spawn pairing for team mode: spawnTilePointsFor() puts
+    // indices 0 & 2 on the top edge and 1 & 3 on the bottom edge (see
+    // shared/protocol.js), so grouping them this way spawns each team
+    // together on its own side of the map instead of scattered corners.
+    const teamSpawns = {
+      red:  [spawnPoints[0], spawnPoints[2]].filter(Boolean),
+      blue: [spawnPoints[1], spawnPoints[3]].filter(Boolean),
+    };
+    const teamCounts = { red: 0, blue: 0 };
     lobbyPlayers.forEach((player, index) => {
-      const spawn = spawnPoints[index % spawnPoints.length];
+      const team = teamsEnabled ? (index % 2 === 0 ? 'red' : 'blue') : null;
+      let spawn;
+      if (teamsEnabled) {
+        const pool = teamSpawns[team].length ? teamSpawns[team] : spawnPoints;
+        spawn = pool[teamCounts[team]++ % pool.length];
+      } else {
+        spawn = spawnPoints[index % spawnPoints.length];
+      }
       this.gameState.players.set(player.id, {
         id: player.id,
         name: player.name,
+        team,
         x: spawn.x,
         y: spawn.y,
         angle: spawn.angle,

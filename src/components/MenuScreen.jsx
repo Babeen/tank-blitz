@@ -1,8 +1,9 @@
 import React from 'react';
+import Screen from './Screen';
 
 export default function MenuScreen({ onPlay, onSurvival, on2P, onOnline, onGarage, onHow, onSettings, onCredits }) {
   return (
-    <div className="screen" id="menu">
+    <Screen id="menu">
       <div className="title">TANK ARENA</div>
       <div className="subtitle">B L I T Z</div>
       <button className="btn primary" onClick={onPlay}>BATTLE</button>
@@ -15,6 +16,6 @@ export default function MenuScreen({ onPlay, onSurvival, on2P, onOnline, onGarag
         <button className="btn small" onClick={onSettings}>SETTINGS</button>
         <button className="btn small" onClick={onCredits}>CREDITS</button>
       </div>
-    </div>
+    </Screen>
   );
 }

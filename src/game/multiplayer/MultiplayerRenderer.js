@@ -7,6 +7,12 @@ import { Utils } from '../utils/index.js';
 
 const LOCAL_COLORS  = { color: '#6bd35a', turretColor: '#4fae42', team: 'player' };
 const REMOTE_COLORS = { color: '#5aa8ff', turretColor: '#2f7fe0', team: 'p2'     };
+// Team Deathmatch coloring — used instead of the local/remote scheme above
+// whenever a player has a `team` (see setPlayers()). Both allies and the
+// local player render in their team's color; the existing name label
+// above each tank is what tells you apart from teammates.
+const RED_TEAM_COLORS  = { color: '#ff5a5a', turretColor: '#c73f3f', team: 'red'  };
+const BLUE_TEAM_COLORS = { color: '#5aa8ff', turretColor: '#2f7fe0', team: 'blue' };
 
 const { lerp, angLerp } = Utils;
 
@@ -140,7 +146,7 @@ export class MultiplayerRenderer {
     for (const p of players) {
       seenIds.add(p.id);
       const isLocal = p.id === this.localPlayerId;
-      const style = isLocal ? LOCAL_COLORS : REMOTE_COLORS;
+      const style = p.team === 'red' ? RED_TEAM_COLORS : p.team === 'blue' ? BLUE_TEAM_COLORS : (isLocal ? LOCAL_COLORS : REMOTE_COLORS);
       let tank = this.tanks.get(p.id);
       const isNew = !tank;
       if (!tank) {
@@ -560,7 +566,7 @@ export class MultiplayerRenderer {
     }
     for (const pu of this.powerups) { mctx.fillStyle = '#ffcf3f'; mctx.fillRect(pu.x * sx - 1, pu.y * sy - 1, 3, 3); }
     for (const tank of this.tanks.values()) {
-      mctx.fillStyle = tank.team === 'player' ? '#5be36a' : '#5aa8ff';
+      mctx.fillStyle = tank.team === 'red' ? '#ff5a5a' : tank.team === 'blue' ? '#5aa8ff' : (tank.team === 'player' ? '#5be36a' : '#5aa8ff');
       mctx.beginPath(); mctx.arc(tank.x * sx, tank.y * sy, 3, 0, Math.PI * 2); mctx.fill();
     }
     mctx.strokeStyle = 'rgba(255,255,255,0.4)'; mctx.lineWidth = 1;
@@ -570,6 +576,10 @@ export class MultiplayerRenderer {
   _drawHUD(ctx) {
     const localTank = this.getLocalTank();
     if (!localTank) return;
+
+    const isTeamMode = localTank.team === 'red' || localTank.team === 'blue';
+
+    if (isTeamMode) this._drawTeamScoreBanner(ctx);
 
     const pad = 14, barW = 160, barH = 14;
     let y = this.H - pad - barH - 60;
@@ -615,11 +625,12 @@ export class MultiplayerRenderer {
     let rx = this.W - pad - 200;
     for (const [id, tank] of this.tanks) {
       if (id === this.localPlayerId) continue;
+      const panelColor = tank.team === 'red' ? '#ff5a5a' : tank.team === 'blue' ? '#5aa8ff' : '#5aa8ff';
       ctx.fillStyle = 'rgba(0,0,0,0.55)'; this._hudRR(ctx, rx, pad, 200, 48, 8);
-      ctx.fillStyle = '#5aa8ff'; ctx.font = '700 12px Segoe UI'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillStyle = panelColor; ctx.font = '700 12px Segoe UI'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
       ctx.fillText((tank.name || 'Player') + (tank.dead ? ' 💀' : ''), rx + 8, pad + 6);
       ctx.fillStyle = 'rgba(0,0,0,0.5)'; this._hudRR(ctx, rx + 8, pad + 24, 180, 12, 4);
-      ctx.fillStyle = '#5aa8ff';
+      ctx.fillStyle = panelColor;
       this._hudRR(ctx, rx + 8, pad + 24, Math.max(0, 180 * (tank.hp / tank.maxHp)), 12, 4);
       ctx.fillStyle = '#fff'; ctx.font = '700 10px Segoe UI';
       ctx.fillText('K:' + (tank._kills || 0) + '  D:' + (tank._deaths || 0), rx + 8, pad + 38);
@@ -629,11 +640,28 @@ export class MultiplayerRenderer {
     if (this.showScoreboard) this._drawScoreboard(ctx);
   }
 
+  // Combined-kills banner shown at the top of the screen in Team
+  // Deathmatch — the individual K/D panels below don't convey which side
+  // is actually winning, since the win condition is the team total.
+  _drawTeamScoreBanner(ctx) {
+    let red = 0, blue = 0;
+    for (const tank of this.tanks.values()) {
+      if (tank.team === 'red') red += tank._kills || 0;
+      else if (tank.team === 'blue') blue += tank._kills || 0;
+    }
+    const w = 180, h = 34, x = this.W / 2 - w / 2, y = 14;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; this._hudRR(ctx, x, y, w, h, 8);
+    ctx.textBaseline = 'middle'; ctx.font = '800 16px Segoe UI';
+    ctx.fillStyle = '#ff5a5a'; ctx.textAlign = 'right'; ctx.fillText(String(red), x + w / 2 - 10, y + h / 2);
+    ctx.fillStyle = '#9fb3d1'; ctx.textAlign = 'center'; ctx.font = '700 12px Segoe UI'; ctx.fillText('—', x + w / 2, y + h / 2);
+    ctx.fillStyle = '#5aa8ff'; ctx.textAlign = 'left'; ctx.font = '800 16px Segoe UI'; ctx.fillText(String(blue), x + w / 2 + 10, y + h / 2);
+  }
+
   // ── Scoreboard (Part 22) — toggled with Tab, sorted by kills desc ─────────
 
   _drawScoreboard(ctx) {
     const rows = Array.from(this.tanks.entries())
-      .map(([id, tank]) => ({ id, name: tank.name || 'Player', kills: tank._kills || 0, deaths: tank._deaths || 0, isLocal: id === this.localPlayerId }))
+      .map(([id, tank]) => ({ id, name: tank.name || 'Player', kills: tank._kills || 0, deaths: tank._deaths || 0, isLocal: id === this.localPlayerId, team: tank.team }))
       .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
 
     const rowH = 26, headerH = 30, w = 300;
@@ -654,9 +682,10 @@ export class MultiplayerRenderer {
 
     rows.forEach((r, i) => {
       const ry = y + headerH + i * rowH;
-      ctx.fillStyle = r.isLocal ? '#6bd35a' : '#fff';
+      ctx.fillStyle = r.team === 'red' ? '#ff5a5a' : r.team === 'blue' ? '#5aa8ff' : (r.isLocal ? '#6bd35a' : '#fff');
       ctx.font = '700 13px Segoe UI'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText(r.name, x + 14, ry + 5);
+      ctx.fillText(r.name + (r.isLocal ? ' (you)' : ''), x + 14, ry + 5);
+      ctx.fillStyle = '#fff';
       ctx.textAlign = 'right';
       ctx.fillText(String(r.kills), x + w - 92, ry + 5);
       ctx.fillText(String(r.deaths), x + w - 14, ry + 5);

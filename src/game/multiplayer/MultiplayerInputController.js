@@ -1,4 +1,5 @@
 import { InputManager } from '../systems/Input.js';
+import { isTouchDevice } from '../utils/touchDevice.js';
 import { PLAYER, TILE, T } from '../../../shared/gameConstants.js';
 
 const SEND_INTERVAL_MS = 33;   // ~30 Hz — matches server tick rate
@@ -164,6 +165,10 @@ export class MultiplayerInputController {
 
   init(canvas) {
     this.input.init(canvas);
+    // Same touch wiring as single-player's GameEngine.init() — without
+    // this, isTouch() stays false forever and every touch-specific branch
+    // below (getMovementInput, getTurretAngle, tick's fire/dash) never runs.
+    if (isTouchDevice()) this.input.setTouch(true);
     this._onKeyDown = (e) => { if (e.code === 'Space') this._dashPressed = true; };
     window.addEventListener('keydown', this._onKeyDown);
     this._intervalId = setInterval(() => this.tick(), SEND_INTERVAL_MS);
@@ -338,6 +343,7 @@ export class MultiplayerInputController {
 
     if (!this._active || !this._predicted) return;
 
+    this.input.getTouchState();
     const movement = this.input.getMovementInput();
     const turretAngle = this.getTurretAngle();
     const input = {
@@ -346,31 +352,55 @@ export class MultiplayerInputController {
       // Dash start/hold is now handled inside applyMovement itself (edge
       // detection via state._dashHeld), the same code path reconcile()'s
       // replay uses — see applyMovement for why that unification matters.
-      dash: this.input.key('Space'),
+      dash: this.input.key('Space') || this.input.touch.dash,
     };
 
     applyMovement(this._predicted, input, dt, this._map);
     this.renderer?.setLocalPredicted(this._predicted);
   }
 
+  // No mouse position exists on a touch device, so aiming falls back to
+  // auto-targeting the nearest live opponent — same UX single-player
+  // already uses for its own touch mode (see GameEngine.handlePlayer).
+  // Skips teammates in Team Deathmatch so the reticle never locks onto
+  // your own side.
+  getTouchAimAngle(tx, ty, localTank) {
+    let nearest = null, bestD = Infinity;
+    for (const [id, tank] of this.renderer.tanks) {
+      if (id === this.renderer.localPlayerId || !tank.alive) continue;
+      if (localTank.team && tank.team === localTank.team) continue;
+      const d = Math.hypot(tank.x - tx, tank.y - ty);
+      if (d < bestD) { bestD = d; nearest = tank; }
+    }
+    if (nearest) return Math.atan2(nearest.y - ty, nearest.x - tx);
+    // No opponent visible — point the turret the way we're moving instead
+    // of leaving it frozen at whatever angle it last had.
+    if (Math.hypot(this.input.touch.mx, this.input.touch.my) > 0.1) {
+      return Math.atan2(this.input.touch.my, this.input.touch.mx);
+    }
+    return null;
+  }
+
   getTurretAngle() {
     const localTank = this.renderer?.getLocalTank();
     if (!localTank) return null;
+    const tx = this._predicted?.x ?? localTank.x;
+    const ty = this._predicted?.y ?? localTank.y;
+    if (this.input.isTouch()) return this.getTouchAimAngle(tx, ty, localTank);
     const mouse = this.input.mouse;
     const world = this.renderer.screenToWorld(mouse.x, mouse.y);
     // Use predicted position for turret angle calculation so aiming feels immediate
-    const tx = this._predicted?.x ?? localTank.x;
-    const ty = this._predicted?.y ?? localTank.y;
     return Math.atan2(world.y - ty, world.x - tx);
   }
 
   tick() {
     if (!this._active) return; // countdown / lobby / results — no gameplay input
 
+    this.input.getTouchState();
     const movement = this.input.getMovementInput();
     const turretAngle = this.getTurretAngle();
-    const shooting = this.input.mouse.down;
-    const dash = this._dashPressed || this.input.key('Space');
+    const shooting = this.input.mouse.down || this.input.touch.fire;
+    const dash = this._dashPressed || this.input.key('Space') || this.input.touch.dash;
     this._dashPressed = false;
 
     const current = {
